@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; frame-src https://accounts.google.com/gsi/; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://accounts.google.com/gsi/; style-src 'self' https://accounts.google.com/gsi/style 'unsafe-inline'; img-src 'self' data: https://*.googleusercontent.com https://*.gstatic.com">
+<title>疾病全人照護平台</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+<header class="top">
+  <h1 id="appName">疾病全人照護平台</h1>
+  <div class="who" id="who"></div>
+</header>
+<nav class="tabs hidden" id="tabs">
+  <a href="#home" data-v="home">首頁</a>
+  <a href="#record" data-v="record">新增紀錄</a>
+  <a href="#tasks" data-v="tasks">我的待辦<span class="badge hidden" id="taskBadge"></span></a>
+  <a href="#history" data-v="history">病人歷史</a>
+  <a href="#dashboard" data-v="dashboard">成效儀表板</a>
+</nav>
+<main id="main">
+  <div class="login" id="login">
+    <div class="card">
+      <h2>請以 Google 帳號登入</h2>
+      <p class="note">僅限控制台授權名單內之人員使用。</p>
+      <div id="gsiBtn" style="display:flex;justify-content:center;margin:16px 0"></div>
+      <div id="loginMsg"></div>
+    </div>
+  </div>
+  <div id="view"></div>
+  <div id="printArea"></div>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
