@@ -466,7 +466,8 @@
       '<div id="refBox" style="display:none" data-field="refRoles"><label class="f">轉介給（可多選）</label><div class="chips">' +
       codes('職類').map(function (c) { return chip('refRoles', c.code, c.text); }).join('') + '</div></div></div>' +
 
-      '<details class="card opt" id="optWhole"><summary><h2>全人評估（可略過）</h2></summary><label class="f">發現問題（可複選）</label>' +
+      '<details class="card opt" id="optWhole"><summary><h2>全人評估</h2><span class="opt-tag">選填</span><span class="opt-done hidden" id="wholeDone"></span>' +
+        '<div class="opt-hint">多為勾選；勾選的問題計入問題發現率，跨職類需求會自動帶入轉介對象</div></summary><label class="f">發現問題（可複選）</label>' +
       Object.keys(issueGroups).map(function (g) {
         return '<div class="group-label">' + esc(g) + '</div><div class="chips">' + issueGroups[g].map(function (c) { return chip('issues', c.code, c.text); }).join('') + '</div>';
       }).join('') +
@@ -474,13 +475,18 @@
       codes('職類').map(function (c) { return chip('needs', c.code, c.text); }).join('') + '</div>' +
       '<label class="f">全人照護建議</label><textarea name="advice" maxlength="2000" rows="3"></textarea></details>' +
 
-      '<details class="card opt" id="optFeedback"><summary><h2>病人回饋與簽名（可略過）</h2></summary>' +
+      '<details class="card opt" id="optFeedback"><summary><h2>病人回饋與簽名</h2><span class="opt-tag">選填</span><span class="opt-done hidden" id="fbDone"></span>' +
+        '<div class="opt-hint">' + codes('滿意度題目').length + ' 題，點數字即可；可把畫面交給病人或家屬自己點</div></summary>' +
+      '<div class="fb-intro">依今天的感受點選分數，沒有標準答案。<br>1 分＝完全沒有，10 分＝完全做到。</div>' +
       codes('滿意度題目').map(function (c, i) {
         var k = 's' + (i + 1);
-        return '<div class="scale"><div>' + esc(c.text) + '</div><div class="opts">' + [1, 2, 3, 4, 5].map(function (n) {
-          return '<label><input type="radio" name="' + k + '" value="' + n + '">' + n + '</label>';
-        }).join('') + '<button type="button" class="btn ghost small" data-clear="' + k + '">清除</button></div></div>';
-      }).join('') + '<div class="note">1＝非常不同意，5＝非常同意</div>' +
+        return '<fieldset class="scale10" data-k="' + k + '"><legend><span class="qn">' + (i + 1) + '</span>' + esc(c.text) +
+          '<span class="picked" aria-live="polite"></span></legend><div class="opts">' +
+          [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(function (n) {
+            return '<label class="sc' + n + '"><input type="radio" name="' + k + '" value="' + n + '" aria-label="' + n + ' 分">' + n + '</label>';
+          }).join('') + '</div><div class="ends"><span>1 完全沒有</span><span>10 完全做到</span></div></fieldset>';
+      }).join('') +
+      '<div class="note">再點一次已選的分數可取消。</div>' +
       '<label class="f">病人簽名</label><canvas class="sig" id="sig"></canvas>' +
       '<div class="actions-bar"><button type="button" class="btn ghost small" id="sigClear">清除簽名</button></div></details>' +
 
@@ -521,12 +527,33 @@
       $('#refBox', f).style.display = f.needRef.checked ? '' : 'none';
       if (f.needRef.checked) vals(f, 'needs').forEach(function (r) { setChecked(f, 'refRoles', r, true); });
     });
-    $$('[data-clear]', f).forEach(function (btn) {
-      btn.addEventListener('click', function () { $$('input[name="' + btn.getAttribute('data-clear') + '"]', f).forEach(function (x) { x.checked = false; x.parentNode.classList.remove('on'); }); });
+    // v2.5.2 十分量表：再點已選分數即取消；選填區顯示「已填 N 項」
+    var paintScale = function (k) {
+      var fs = $('fieldset[data-k="' + k + '"]', f); if (!fs) return;
+      var v = radio(f, k);
+      $$('input', fs).forEach(function (x) { x.parentNode.classList.toggle('on', x.checked); });
+      $('.picked', fs).textContent = v ? '　' + v + ' 分' : '';
+    };
+    var paintOpt = function () {
+      var w = vals(f, 'issues').length + vals(f, 'needs').length + (f.advice.value.trim() ? 1 : 0);
+      var wd = $('#wholeDone', f); wd.textContent = '已填 ' + w + ' 項'; wd.classList.toggle('hidden', !w);
+      var qs = $$('fieldset.scale10', f);
+      var a = qs.filter(function (fs) { return radio(f, fs.getAttribute('data-k')); }).length;
+      var fd = $('#fbDone', f); fd.textContent = '已答 ' + a + '／' + qs.length; fd.classList.toggle('hidden', !a);
+    };
+    $$('fieldset.scale10 label', f).forEach(function (lb) {
+      lb.addEventListener('mousedown', function () { lb._was = lb.firstChild.checked; });
+      lb.addEventListener('touchstart', function () { lb._was = lb.firstChild.checked; }, { passive: true });
+      lb.addEventListener('click', function (e) {
+        var x = lb.firstChild;
+        if (e.target !== x && lb._was) { e.preventDefault(); x.checked = false; lb._was = false; paintScale(x.name); paintOpt(); S.dirty = true; }
+      });
     });
+    f.advice.addEventListener('input', paintOpt);
     f.addEventListener('change', function (e) {
       var n = e.target.name;
-      if (n && /^s[123]$/.test(n)) $$('input[name="' + n + '"]', f).forEach(function (x) { x.parentNode.classList.toggle('on', x.checked); });
+      if (n && /^s\d+$/.test(n)) paintScale(n);
+      if (n === 'issues' || n === 'needs' || /^s\d+$/.test(n || '')) paintOpt();
       if (n === 'qpick') onQuestionPick(f);
       if (n === 'packs2') updateAvoid(f);
       if (n === 'behaviors') {
@@ -960,7 +987,7 @@
       question: f.question.value.trim(), response: resp, issues: vals(f, 'issues'), needs: vals(f, 'needs'),
       advice: f.advice.value.trim(), teachback: radio(f, 'teachback'), actions: vals(f, 'actions'), caregiver: f.caregiver.checked,
       needFu: f.needFu.checked, fuDays: f.fuDays.value, fuRole: f.fuRole.value, needRef: f.needRef.checked,
-      refRoles: vals(f, 'refRoles'), s1: radio(f, 's1'), s2: radio(f, 's2'), s3: radio(f, 's3'), signature: sig.data(),
+      refRoles: vals(f, 'refRoles'), s1: radio(f, 's1'), s2: radio(f, 's2'), s3: radio(f, 's3'), satScale: 'V3_1-10', signature: sig.data(),
       drugs: f._drugs.slice(),
       devices: activeDevices(f).map(function (c) {
         var st = f._dev[c];
