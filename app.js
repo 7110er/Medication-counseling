@@ -1392,6 +1392,20 @@
     return '<div class="def">' + line('代碼', code) + line('分子', d.num) + line('分母', d.den || '該面向全部新版紀錄') + line('排除', d.exc) +
       line('資料來源', d.src) + line('外部對照', d.ext) + line('說明', d.note) + line('目標值來源', d.targetSrc) + '</div>';
   }
+  /** v2.6.1 歷年彙總：含舊系統歸檔紀錄；比率以年度分子／分母加總計算 */
+  function yearsTable(years, pk) {
+    if (!years || !years.length) return '';
+    var minN = S.boot.settings.minN || 10;
+    var r = function (o) { return !o || !o.den ? '<td class="num">—</td>' : o.den < minN ? '<td class="num small-n" title="n＝' + o.den + '">n' + o.den + '</td>' :
+      '<td class="num">' + (Math.round(o.num / o.den * 1000) / 10) + '%<span class="note">　' + o.num + '／' + o.den + '</span></td>'; };
+    var hist = pk !== 'ALL' && !(S.boot.allPacks || []).some(function (x) { return x.code === pk; });
+    return '<details class="card sub" open><summary><h2>歷年彙總（含舊系統歸檔紀錄）</h2></summary>' +
+      '<div class="note">舊系統（2026-11 正式切換前）只有面向、問題分類、發現問題、跨職類需求、病人來源與滿意度；教回、追蹤等指標僅新版紀錄有值。滿意度三種量表題目不同，分欄呈現不混算。' + (hist ? '本面向已停用，僅保留歷史統計。' : '') + '</div>' +
+      '<div class="tablewrap"><table class="t"><thead><tr><th>年</th><th>有紀錄月數</th><th>人次</th><th>問題發現率</th><th>跨職類需求提出率</th><th>教回完全（新版）</th><th>舊版滿意度 9–10 分</th><th>V2 滿意度 ≥4 分</th><th>V3 滿意度 9–10 分</th></tr></thead><tbody>' +
+      years.slice().reverse().map(function (y) {
+        return '<tr><td>' + esc(y.y) + '</td><td class="num">' + (y.months || 0) + '</td><td class="num">' + ((y.n || {}).num || 0) + '</td>' + r(y.issue) + r(y.needs) + r(y.tb) + r(y.satV1) + r(y.satV2) + r(y.satV3) + '</tr>';
+      }).join('') + '</tbody></table></div></details>';
+  }
   /** 指標列：依類型分組；每列可展開定義 */
   function indicatorList(rows, ym, defs, pk) {
     var B = byCodeOf(rows), m12 = m12Of(ym);
@@ -1437,7 +1451,7 @@
       '<div class="actions-bar left"><button type="button" class="btn small ghost" id="dPrint">列印／存 PDF</button><button type="button" class="btn small ghost hidden" id="dCsv">下載 CSV</button></div>' +
       '<div class="note" id="dlast" role="status" aria-live="polite"></div></div><div id="dres"><div class="empty">載入中…</div></div>';
     var months = [];
-    for (var i = 0; i < 24; i++) months.push(ymShift(nowYm, -i));
+    for (var i = 0; i < 24 || (S.dashMinYm && ymShift(nowYm, -i) >= S.dashMinYm && i < 240); i++) months.push(ymShift(nowYm, -i));
     $('#dm').innerHTML = months.map(function (m) { return '<option>' + m + '</option>'; }).join('');
     $('#dm').value = S.dashYm || nowYm;
     $$('[data-view]', view).forEach(function (b) { b.addEventListener('click', function () { S.dashView = b.getAttribute('data-view'); S.dashKey = ''; route(); }); });
@@ -1450,7 +1464,14 @@
     var lastRows = [];
     $('#dCsv').addEventListener('click', function () { csvDownload('成效指標_' + (S.dashPack || 'ALL') + '_' + $('#dm').value + '.csv', lastRows); });
     var foot = function (d) {
-      $('#dlast').textContent = '最後彙總：' + (d.lastRun || '尚未執行') + '。比率＝分子／分母；分母低於 ' + S.boot.settings.minN + ' 不顯示比率。已排除測試病歷號與歸檔紀錄。點任一指標可看定義與外部對照。';
+      $('#dlast').textContent = '最後彙總：' + (d.lastRun || '尚未執行') + '。比率＝分子／分母；分母低於 ' + S.boot.settings.minN + ' 不顯示比率。已排除測試病歷號；含舊系統歸檔紀錄（僅計舊系統有記錄的欄位：人次、問題發現、跨職類需求、問題分類、病人來源、舊版滿意度）。點任一指標可看定義與外部對照。';
+      // v2.6.1：月份選單延伸至最早有資料之月份（含舊系統歸檔紀錄）
+      if (d.minYm && d.minYm !== S.dashMinYm) {
+        S.dashMinYm = d.minYm;
+        var ms = [], m = nowYm, cur = $('#dm').value;
+        while (m >= d.minYm && ms.length < 240) { ms.push(m); m = ymShift(m, -1); }
+        if (ms.length > 24) { $('#dm').innerHTML = ms.map(function (x) { return '<option>' + x + '</option>'; }).join(''); $('#dm').value = cur; }
+      }
     };
     var err = function (e) { $('#dres').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; };
     var load = function () {
@@ -1492,7 +1513,7 @@
             matrix = '<div class="card"><h2>面向一覽（' + esc(ym) + '）</h2><div class="note">數字為當月比率（%）；n＝分母不足 ' + S.boot.settings.minN + '。K1–K2 過程、K3–K4 結果、K5 平衡（越低越好）。點面向名稱進入該面向。</div>' +
               '<div class="tablewrap"><table class="t matrix"><thead><tr><th>面向</th><th>當月人次</th><th>12 月人次</th><th>教回完全</th><th>K1</th><th>K2</th><th>K3</th><th>K4</th><th>K5</th></tr></thead><tbody>' +
               d.packSummary.map(function (p) {
-                return '<tr><td><button type="button" class="linkbtn" data-goPack="' + esc(p.code) + '">' + esc(p.name) + '</button></td><td class="num">' + p.n + '</td><td class="num">' + p.n12 + '</td>' + kcell(p.tb) +
+                return '<tr' + (p.hist ? ' class="hist"' : '') + '><td><button type="button" class="linkbtn" data-goPack="' + esc(p.code) + '">' + esc(p.name) + '</button>' + (p.hist ? '<span class="tag">歷史</span>' : '') + '</td><td class="num">' + p.n + '</td><td class="num">' + p.n12 + '</td>' + kcell(p.tb) +
                   ['K1', 'K2', 'K3', 'K4', 'K5'].map(function (k) { return kcell(p.k[k]); }).join('') + '</tr>';
               }).join('') + '</tbody></table></div></div>';
           }
@@ -1501,7 +1522,7 @@
             mine.map(function (p) { return '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.packName || p.pack) + '</td><td class="num">' + p.n + '</td><td class="num">' + p.due + '</td><td class="num">' + p.done + '</td></tr>'; }).join('') +
             '</tbody></table></div></details>' : '';
           $('#dres').innerHTML = '<div class="print-head">' + esc(S.boot.settings.hospital || '') + '　' + esc(title) + '　' + esc(ym) + '（列印 ' + today() + '）</div>' +
-            '<div class="dcards">' + cards + '</div>' + matrix +
+            '<div class="dcards">' + cards + '</div>' + matrix + yearsTable(d.years, pk || 'ALL') +
             '<div class="card"><h2>' + esc(title) + '：全部指標</h2>' + indicatorList(d.rows, ym, d.defs, pk || 'ALL') + '</div>' + ptable;
           $$('[data-goPack]', $('#dres')).forEach(function (b) { b.addEventListener('click', function () { S.dashView = 'PACK'; S.dashPack = b.getAttribute('data-goPack'); route(); }); });
           $('#dlast').textContent += '　已更新 ' + B.order.length + ' 項指標。';

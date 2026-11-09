@@ -290,3 +290,8 @@ input.kv { max-width: 160px; }
   body.print-dash .dcards { grid-template-columns: repeat(4, 1fr); }
   body.print-dash .card, body.print-dash .dcard { break-inside: avoid; }
 }
+/* v2.6.1 歷史面向與歷年彙總 */
+.matrix tr.hist td { color: var(--muted); }
+.matrix tr.hist .tag { margin-left: 6px; background: #eef1f4; color: var(--muted); border-color: #d5dbe1; }
+td.small-n { color: var(--muted); }
+details.card.sub > summary h2 { display: inline; margin: 0; }
