@@ -229,3 +229,64 @@ fieldset.scale10 .picked { color: var(--brand); font-weight: 600; }
 @media (max-width: 520px) {
   .scale10 .opts { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
+/* v2.6 成效儀表板 */
+.dcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.dcard { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-height: 132px; }
+.dcard .dk { color: var(--muted); font-size: .88rem; line-height: 1.35; }
+.dcard .big { font-size: 2rem; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.15; }
+.dcard .big .small-n { font-size: 1rem; color: var(--muted); font-weight: 400; }
+.dcard .ds { font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dcard .dfoot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.delta { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.delta.up::first-letter, .delta.down::first-letter { color: var(--brand); }
+.spark { display: block; overflow: visible; }
+.spark .sp-line { fill: none; stroke: #8a98a8; stroke-width: 1.6; }
+.spark .sp-dot { fill: var(--brand); }
+.spark .sp-target { stroke: #8a98a8; stroke-width: 1; stroke-dasharray: 3 3; }
+.itype { margin: 18px 0 6px; font-size: .9rem; color: var(--muted); letter-spacing: .02em; }
+.ilist { border-top: 1px solid var(--line); }
+details.ind { border-bottom: 1px solid var(--line); }
+details.ind > summary { display: grid; grid-template-columns: minmax(180px, 2.2fr) minmax(130px, 1.2fr) minmax(90px, 1fr) auto; gap: 10px; align-items: center;
+  padding: 10px 4px; cursor: pointer; list-style: none; min-height: 44px; }
+details.ind > summary::-webkit-details-marker { display: none; }
+details.ind > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+details.ind[open] > summary { background: var(--brand-soft); }
+.iname { line-height: 1.4; }
+.ival { font-variant-numeric: tabular-nums; }
+.ival b { font-size: 1.05rem; }
+.itr { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.gap { position: relative; display: block; height: 8px; align-self: center; background: #edf1f5; border-radius: 4px; }
+.gap .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--brand); border-radius: 4px; }
+.gap .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); }
+.def { padding: 8px 6px 14px; font-size: .88rem; display: grid; gap: 4px; color: var(--ink); }
+.def b { color: var(--muted); font-weight: 500; display: inline-block; min-width: 5.5em; }
+.band { position: relative; display: inline-block; width: 140px; height: 14px; background: #edf1f5; border-radius: 7px; vertical-align: middle; }
+.band .iqr { position: absolute; top: 3px; bottom: 3px; background: #b9c4cf; border-radius: 4px; }
+.band .med { position: absolute; top: 0; bottom: 0; width: 2px; background: #5b6878; }
+.band .me { position: absolute; top: 1px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--brand); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--brand); }
+table.matrix td.mx { text-align: center; font-variant-numeric: tabular-nums; background: rgba(47, 93, 124, calc(var(--v, 0) / 100 * .55)); color: var(--ink); }
+table.matrix td.mx.small, table.matrix td.mx.none { background: none; color: var(--muted); font-size: .8rem; }
+.linkbtn { background: none; border: 0; padding: 4px 0; color: var(--brand); text-decoration: underline; cursor: pointer; font: inherit; text-align: left; min-height: 24px; }
+.stack { display: inline-flex; width: 90px; height: 10px; border-radius: 5px; overflow: hidden; vertical-align: middle; background: #edf1f5; }
+.stack .s1 { background: var(--brand); } .stack .s2 { background: #7f9db3; } .stack .s3 { background: #c7d4de; }
+.print-head { display: none; }
+/* v2.6 表單：追蹤結果三態、關鍵數值 */
+.outs { display: grid; gap: 6px; margin-bottom: 8px; }
+.orow { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+.orow.rev { border-left: 3px solid var(--bad); }
+.orow .otext { flex: 1 1 220px; line-height: 1.4; }
+.seg3 { display: inline-flex; gap: 4px; }
+.seg3 .chip { min-width: 52px; justify-content: center; }
+input.kv { max-width: 160px; }
+#nextCheck { margin-top: 6px; }
+@media (max-width: 640px) {
+  details.ind > summary { grid-template-columns: 1fr auto; }
+  details.ind > summary .gap, details.ind > summary .itr { grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media print {
+  body.print-dash main > #view { display: block !important; }
+  body.print-dash .print-head { display: block; font-weight: 600; margin-bottom: 10px; }
+  body.print-dash details.ind > summary { grid-template-columns: 2fr 1.2fr 1fr auto; }
+  body.print-dash .dcards { grid-template-columns: repeat(4, 1fr); }
+  body.print-dash .card, body.print-dash .dcard { break-inside: avoid; }
+}
