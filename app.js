@@ -1351,7 +1351,7 @@
   }
   /** 科內分布帶：四分位區間、中位數刻度、本人點 */
   function band(dist, own) {
-    if (!dist) return '<span class="note">科內可比較人數不足</span>';
+    if (!dist) return '<span class="note">科內可比較人數不足（需 ≥3 位同仁分母 ≥5）</span>';
     var p = function (v) { return Math.max(0, Math.min(100, v)) + '%'; };
     return '<span class="band" role="img" aria-label="' + esc('科內中位數 ' + dist.median + '%，四分位 ' + dist.q1 + '–' + dist.q3 + '%（' + dist.n + ' 人）' + (own === null ? '' : '；本人 ' + own + '%')) + '">' +
       '<span class="iqr" style="left:' + p(dist.q1) + ';width:' + Math.max(1, dist.q3 - dist.q1) + '%"></span><span class="med" style="left:' + p(dist.median) + '"></span>' +
@@ -1393,7 +1393,7 @@
       line('資料來源', d.src) + line('外部對照', d.ext) + line('說明', d.note) + line('目標值來源', d.targetSrc) + '</div>';
   }
   /** 指標列：依類型分組；每列可展開定義 */
-  function indicatorList(rows, ym, defs) {
+  function indicatorList(rows, ym, defs, pk) {
     var B = byCodeOf(rows), m12 = m12Of(ym);
     var types = ['結果', '過程', '平衡', '結構'];
     var isSmall = function (c) { var cur = B.by[c].m[ym]; return !cur || cur.small; };
@@ -1404,7 +1404,12 @@
         gapBar(cur && cur.rate, cur && cur.target, cur && cur.small) + '<span class="itr">' + deltaTxt(cur, prev) +
         spark(m12.map(function (m) { var r = x.m[m]; return r && r.rate !== null && !r.small ? r.rate : null; }), cur ? cur.target : null) + '</span></summary>' + defHtml(c, defs) + '</details>';
     };
-    if (!B.order.length) return '<div class="empty">所選期間無資料</div>';
+    if (!B.order.length) {
+      // v2.6.0：無資料時仍列出本面向已定義指標（含定義），讓使用者知道會追蹤什麼
+      var dk = Object.keys(defs || {}).filter(function (c) { return pk && defs[c].pack === pk && defs[c].name; }).sort();
+      return '<div class="empty">所選期間無資料</div>' + (dk.length ? '<div class="ilist">' + dk.map(function (c) {
+        return '<details class="ind"><summary><span class="iname">' + esc(defs[c].name) + '</span><span class="ival"><span class="small-n">本期無資料</span></span></summary>' + defHtml(c, defs) + '</details>'; }).join('') + '</div>' : '');
+    }
     var big = B.order.filter(function (c) { return !isSmall(c); }), small = B.order.filter(isSmall);
     var out = types.map(function (t) {
       var list = big.filter(function (c) { return B.by[c].type === t; });
@@ -1456,7 +1461,9 @@
         $('#dpWrap').classList.toggle('hidden', V === 'DEPT');
         var pk = V === 'DEPT' ? 'ALL' : (sel.value && sel.value !== 'ALL' ? sel.value : (S.dashPack && S.dashPack !== 'ALL' ? S.dashPack : ''));
         vapi('dashboard', { pack: pk || 'ALL', from: from, to: ym }).then(function (d) {
-          var packs = d.packs.filter(function (p) { return p.code !== 'ALL'; });
+          // v2.6.0：選單＝所有啟用面向（無資料者也可選，顯示「樣本不足」）＋僅有歷史資料之歸檔面向（排在最後）
+          var seen = {}, packs = (S.boot.packs || []).filter(function (p) { return p.code && !seen[p.code] && (seen[p.code] = 1); }).map(function (p) { return { code: p.code, name: p.name }; });
+          d.packs.forEach(function (p) { if (p.code !== 'ALL' && !seen[p.code]) { seen[p.code] = 1; packs.push(p); } });
           if (V === 'PACK') {
             sel.innerHTML = packs.map(function (p) { return '<option value="' + esc(p.code) + '">' + esc(p.name) + '</option>'; }).join('');
             if (!pk) { if (!packs.length) { $('#dres').innerHTML = '<div class="empty">尚無面向資料</div>'; return; } S.dashPack = packs[0].code; sel.value = S.dashPack; return load(); }
@@ -1495,7 +1502,7 @@
             '</tbody></table></div></details>' : '';
           $('#dres').innerHTML = '<div class="print-head">' + esc(S.boot.settings.hospital || '') + '　' + esc(title) + '　' + esc(ym) + '（列印 ' + today() + '）</div>' +
             '<div class="dcards">' + cards + '</div>' + matrix +
-            '<div class="card"><h2>' + esc(title) + '：全部指標</h2>' + indicatorList(d.rows, ym, d.defs) + '</div>' + ptable;
+            '<div class="card"><h2>' + esc(title) + '：全部指標</h2>' + indicatorList(d.rows, ym, d.defs, pk || 'ALL') + '</div>' + ptable;
           $$('[data-goPack]', $('#dres')).forEach(function (b) { b.addEventListener('click', function () { S.dashView = 'PACK'; S.dashPack = b.getAttribute('data-goPack'); route(); }); });
           $('#dlast').textContent += '　已更新 ' + B.order.length + ' 項指標。';
         }).catch(err);
@@ -1520,7 +1527,7 @@
           }).join('');
           var sup = function (m) { var a = m['督導_獨立'] || 0, b = m['督導_在場'] || 0, c = m['督導_覆核'] || 0, t = a + b + c; return { a: a, b: b, c: c, t: t }; };
           var months = m12Of(ym).map(function (m) { return who.months.filter(function (x) { return x.ym === m; })[0] || { ym: m }; });
-          var trend = '<div class="tablewrap"><table class="t"><thead><tr><th>月份</th><th>件數</th><th>教回完全</th><th>發現問題</th><th>介入接受</th><th>追蹤準時</th><th>督導（獨立／在場／覆核）</th><th>填寫秒數中位數</th></tr></thead><tbody>' +
+          var trend = '<div class="tablewrap"><table class="t"><thead><tr><th>月份</th><th>件數</th><th>教回完全</th><th>發現問題或不當行為</th><th>介入接受</th><th>追蹤準時</th><th>督導（獨立／在場／覆核）</th><th>填寫秒數中位數</th></tr></thead><tbody>' +
             months.filter(function (m) { return m['件數'] || m['追蹤到期數']; }).reverse().map(function (m) {
               var s2 = sup(m), r = function (a, b) { return b ? pct(a || 0, b) + '%<span class="note">　' + (a || 0) + '／' + b + '</span>' : '—'; };
               return '<tr><td>' + esc(m.ym) + '</td><td class="num">' + (m['件數'] || 0) + '</td><td>' + r(m['教回完全'], m['教回分母']) + '</td><td>' + r(m['發現件數'], m['件數']) + '</td><td>' + r(m['介入接受'], m['介入分母']) +
