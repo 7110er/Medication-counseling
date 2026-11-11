@@ -1664,8 +1664,10 @@
   function aggRange(x, months) {
     var o = { num: 0, den: 0, n: 0, hasDen: false, median: null };
     if (!x) return null;
-    months.forEach(function (m) { var r = x.m[m]; if (!r) return; o.n++; o.num += r.num || 0; if (r.den !== null && r.den !== undefined && r.den !== '') { o.den += r.den; o.hasDen = true; } if (r.median !== null && r.median !== undefined && r.median !== '') o.median = r.median; });
+    var isRate = false;
+    months.forEach(function (m) { var r = x.m[m]; if (!r) return; o.n++; o.num += r.num || 0; if (r.rate !== null || r.small) isRate = true; if (r.den !== null && r.den !== undefined && r.den !== '') { o.den += r.den; o.hasDen = true; } if (r.median !== null && r.median !== undefined && r.median !== '') o.median = r.median; });
     if (!o.n) return null;
+    if (!isRate) { o.hasDen = false; o.small = false; o.rate = null; if (o.median !== null) o.num = o.median; return o; } // 件數型（C0、C1、T1、B2）或中位數型（G6）：不計比率
     var minN = S.boot.settings.minN || 10;
     o.small = o.hasDen && o.den < minN;
     o.rate = o.hasDen && o.den && !o.small ? Math.round(o.num / o.den * 1000) / 10 : null;
@@ -1770,7 +1772,7 @@
     var item = function (c) {
       var x = B.by[c], cur = aggRange(x, R.months), prev = aggRange(x, R.prev), d = (defs || {})[c] || {};
       var val = !cur ? '<span class="note">本區間無資料</span>' : cur.small ? '<span class="note">n＝' + cur.den + '，樣本不足</span>' : cur.rate !== null ? '<b>' + cur.rate + '%</b><span class="note">　' + cur.num + '／' + cur.den + '</span>' :
-        cur.median !== null && !cur.hasDen ? '<b>中位數 ' + cur.median + '</b><span class="note">（最近月）</span>' : '<b>' + cur.num + '</b>';
+        cur.median !== null && !cur.hasDen ? '<b>中位數 ' + cur.median + '</b><span class="note">（區間內最近月）</span>' : '<b>' + cur.num + '</b>';
       return '<details class="ind"><summary><span class="iname">' + esc(x.name) + (d.main ? ' <span class="tag main">主顯</span>' : '') + (d.nature && d.nature !== '績效' ? ' <span class="tag">' + esc(d.nature) + '</span>' : '') + '</span><span class="ival">' + val + '</span>' +
         gapBar(cur && cur.rate, null, cur && cur.small) + '<span class="itr">' + (cur && cur.rate !== null ? deltaPP(cur, prev) : '') + trendSvg(x, R.months.slice(-24), cur && cur.hasDen ? 'rate' : 'n', R.cut, 130) + '</span></summary>' + defHtml(c, defs) + (d.ver ? '<div class="note">' + esc(d.ver) + '</div>' : '') + '</details>';
     };
