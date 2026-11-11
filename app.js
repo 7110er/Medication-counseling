@@ -454,13 +454,19 @@
       codes('介入結果').map(function (c) { return chip('intervention', c.code, c.text, false, 'radio'); }).join('') + '</div></div></div>' +
 
       '<div class="card" data-sec="3"><h2>結果與後續</h2>' +
-      '<div data-field="teachback"><label class="f">教回（teach-back）結果 <span class="req" id="tbReq">*</span><span class="note" id="tbHint"></span></label><div class="chips">' +
-      codes('教回結果').map(function (c) { return chip('teachback', c.code, c.text, false, 'radio'); }).join('') + '</div></div>' +
+      // v2.7：首次教回＋補強後最終（首次即完全或無法應答時不再問）
+      '<div data-field="teachback"><label class="f">第一次教回（teach-back） <span class="req" id="tbReq">*</span><span class="note" id="tbHint"></span></label><div class="chips">' +
+      codes('教回結果').map(function (c) { return chip('firstTb', c.code, c.text, false, 'radio'); }).join('') + '</div>' +
+      '<div id="tbAfter" class="hidden sub-q"><label class="f">重新說明後的結果 <span class="req">*</span><span class="note">（首次未完全時，補強後再請病人說一次）</span></label><div class="chips">' +
+      codes('教回結果').filter(function (c) { return c.code !== 'NA'; }).map(function (c) { return chip('teachback', c.code, c.text, false, 'radio'); }).join('') + '</div></div></div>' +
       '<div id="tbPrompts"></div>' +
       '<div data-field="actions"><label class="f">病人行動計畫 <span class="req">*</span>（至少一項）</label><div id="actions"><span class="note">請先選擇主要照護面向</span></div></div>' +
       '<div class="toggle"><input type="checkbox" name="caregiver" id="cg"><label for="cg">照顧者在場</label></div>' +
-      (b.user && supVisible() ? '<div data-field="supervision"><label class="f">督導方式 <span class="note">（學員紀錄；預設沿用上次）</span></label><div class="chips">' +
-        codes('督導方式').map(function (c) { return chip('supervision', c.code, c.text, c.code === (S.lastSup || 'IND'), 'radio'); }).join('') + '</div></div>' : '') +
+      '<div data-field="coverage" id="covWrap"><label class="f">本次涵蓋 <span class="note">（依題目與行動計畫預先勾選，可修改）</span></label><div class="chips" id="covBox"></div></div>' +
+      (b.user && (supVisible() || isLearner()) ? '<div data-field="supervision"><label class="f">督導方式' + (isUgy() ? ' <span class="req">*</span>' : '') + ' <span class="note">（學員紀錄；預設沿用上次）</span></label><div class="chips">' +
+        codes('督導方式').filter(function (c) { return !isUgy() || c.code !== 'IND'; }).map(function (c) { return chip('supervision', c.code, c.text, c.code === (S.lastSup && (!isUgy() || S.lastSup !== 'IND') ? S.lastSup : (isUgy() ? 'PRES' : 'IND')), 'radio'); }).join('') + '</div></div>' +
+        (isLearner() ? '<div data-field="supervisor"><label class="f">督導教師' + (isUgy() ? ' <span class="req">*</span>' : '') + '</label><select name="supervisor"><option value="">' + (isUgy() ? '請選擇' : '（獨立執行可不填）') + '</option>' +
+          (b.supervisors || []).map(function (x) { return '<option value="' + esc(x.pid) + '"' + (x.pid === S.lastSupT ? ' selected' : '') + '>' + esc(x.name) + (x.teacher ? '（臨床教師）' : '') + '</option>'; }).join('') + '</select></div>' : '') : '') +
       '<div class="toggle"><input type="checkbox" name="needFu" id="nf"><label for="nf">需要追蹤</label> <span class="auto hidden" id="fuAuto">自動：因發現不當用藥行為建立追蹤，可取消</span></div>' +
       '<div class="row two" id="fuBox" style="display:none"><div><label class="f">幾天後追蹤</label><input type="number" name="fuDays" min="1" max="365" value="14"></div>' +
       '<div><label class="f">追蹤職類</label><select name="fuRole">' + roleOpts + '</select></div></div>' +
@@ -558,6 +564,13 @@
     f.advice.addEventListener('input', paintOpt);
     f.addEventListener('change', function (e) {
       var n = e.target.name;
+      if (n === 'coverage') e.target.dataset.touched = '1';
+      if (n === 'firstTb') {
+        var fv = e.target.value, need = fv === 'PART' || fv === 'NONE';
+        $('#tbAfter', f).classList.toggle('hidden', !need);
+        $$('input[name=teachback]', f).forEach(function (x) { x.checked = false; syncChip(x); });
+      }
+      if (n === 'actions' || n === 'issues' || n === 'caregiver' || n === 'source') autoCoverage(f);
       if (n && /^s\d+$/.test(n)) paintScale(n);
       if (n === 'issues' || n === 'needs' || /^s\d+$/.test(n || '')) paintOpt();
       if (n === 'qpick') onQuestionPick(f);
@@ -870,6 +883,28 @@
   }
 
   /* --- 面向與題目 --- */
+  function isLearner() { var l = (S.boot.user || {}).learner; return l === 'PGY' || l === 'UGY'; }
+  function isUgy() { return (S.boot.user || {}).learner === 'UGY'; }
+  /** v2.7 本次涵蓋：依面向列出（共通＋本面向專屬），保留已勾選 */
+  function renderCoverage(f) {
+    var box = $('#covBox', f); if (!box) return;
+    var keep = vals(f, 'coverage'), pk = f.pack.value;
+    var list = codes('本次涵蓋').filter(function (c) { return c.pack === 'ALL' || c.pack === pk; });
+    box.innerHTML = list.map(function (c) { return chip('coverage', c.code, c.text, keep.indexOf(c.code) >= 0); }).join('');
+    $('#covWrap', f).classList.toggle('hidden', !list.length);
+  }
+  /** 預勾：未手動改過才自動勾（MEDREV←交互作用盤點；DCREC←出院前；NEED←全人評估有勾問題或照顧者在場） */
+  function autoCoverage(f) {
+    var set = function (code, on) {
+      var x = $('input[name=coverage][value="' + code + '"]', f); if (!x || x.dataset.touched) return;
+      if (x.checked !== on) { x.checked = on; syncChip(x); }
+    };
+    var acts = vals(f, 'actions');
+    var ddi = codes('行動計畫').some(function (c) { return acts.indexOf(c.code) >= 0 && /(^|;)U-DDI/.test(c.group || ''); });
+    set('MEDREV', ddi);
+    set('DCREC', f.source.value === 'DC');
+    set('NEED', vals(f, 'issues').length > 0 || f.caregiver.checked);
+  }
   function supVisible() { var lv = { L1: 1, L2: 2, L3: 3, L4: 4 }[S.boot.user.level] || 1; return lv <= (S.boot.settings.supLevel || 1); }
   function updateNextCheck(f) {
     var el = $('#nextCheck', f); if (!el) return;
@@ -896,6 +931,7 @@
     var uA = acts.filter(function (c) { return isU(c) && c.code !== 'NOACT'; }), oA = acts.filter(function (c) { return !isU(c); });
     $('#actions', f).innerHTML = acts.length ? (uA.length ? '<div class="group-label">核心（跨面向共同指標）</div><div class="chips">' + row(uA) + '</div><div class="group-label">本面向</div>' : '') +
       '<div class="chips">' + row(oA) + '</div>' : '<span class="note">無選項</span>';
+    renderCoverage(f); autoCoverage(f);
     var kv = (S.boot.settings.kv || {})[code];
     $('#kvBox', f).classList.toggle('hidden', !kv);
     if (kv) {
@@ -1016,7 +1052,10 @@
       mrn: f.mrn.value.trim(), source: f.source.value, branch: f.branch ? f.branch.value : '', pack: f.pack.value,
       packs2: vals(f, 'packs2'), cat: f.cat.value.indexOf('QX:') === 0 ? 'QX' : f.cat.value, qids: vals(f, 'qpick'),
       question: f.question.value.trim(), response: resp, issues: vals(f, 'issues'), needs: vals(f, 'needs'),
-      advice: f.advice.value.trim(), teachback: radio(f, 'teachback'), actions: vals(f, 'actions'), caregiver: f.caregiver.checked,
+      advice: f.advice.value.trim(), firstTeachback: radio(f, 'firstTb'),
+      teachback: (function () { var t1 = radio(f, 'firstTb'); return t1 === 'FULL' || t1 === 'NA' ? t1 : radio(f, 'teachback'); })(),
+      coverage: vals(f, 'coverage'), supervisor: f.supervisor ? f.supervisor.value : '',
+      actions: vals(f, 'actions'), caregiver: f.caregiver.checked,
       needFu: f.needFu.checked, fuDays: f.fuDays.value, fuRole: f.fuRole.value, needRef: f.needRef.checked,
       refRoles: vals(f, 'refRoles'), s1: radio(f, 's1'), s2: radio(f, 's2'), s3: radio(f, 's3'), satScale: 'V3_1-10', signature: sig.data(),
       drugs: f._drugs.slice(),
@@ -1040,7 +1079,10 @@
     if (!r.source) add('source', '病人來源');
     if (!r.pack) add('pack', '主要照護面向');
     if (!r.response && !r.drugs.length) add('response', '醫療人員回應（或選擇藥品）');
-    if (!r.teachback && !r.devices.length) add('teachback', '教回結果');
+    if (!r.firstTeachback && !r.devices.length) add('teachback', '第一次教回結果');
+    if ((r.firstTeachback === 'PART' || r.firstTeachback === 'NONE') && !r.teachback) add('teachback', '重新說明後的教回結果');
+    if (isUgy() && r.supervision !== 'PRES' && r.supervision !== 'REV') add('supervision', '督導方式（教師在場或事後覆核）');
+    if ((isUgy() || r.supervision === 'REV') && !r.supervisor) add('supervisor', '督導教師');
     if (!r.actions.length) add('actions', '行動計畫');
     if (r.behaviors.length && !r.intervention) add('intervention', '介入結果');
     if (r.needRef && !r.refRoles.length) add('refRoles', '轉介職類');
@@ -1091,6 +1133,7 @@
       unlock();
       lastSource(r.source);
       if (r.supervision) S.lastSup = r.supervision;
+      if (r.supervisor) S.lastSupT = r.supervisor;
       resetDraft();
       var vs = (res.verdicts || []).map(function (v) { return drug(v.drug).brand + ' ' + (VERDICT_TEXT[v.verdict] || v.verdict); });
       toast('已存檔（紀錄編號 ' + res.recordId + '）' + (vs.length ? '：' + vs.join('、') : ''));
@@ -1137,7 +1180,7 @@
 
   /* ---------- 我的待辦 ---------- */
   function setTaskBadge(t) {
-    var n = t.followups.filter(function (f) { return f.overdue || f.due <= today(); }).length + t.referrals.length;
+    var n = t.followups.filter(function (f) { return f.overdue || f.due <= today(); }).length + t.referrals.length + ((t.reviews || {}).mine || []).length;
     var b = $('#taskBadge');
     if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
   }
@@ -1200,8 +1243,24 @@
       }).join('');
       view.innerHTML =
         '<div class="card" id="fuCard"><h2>追蹤（<span id="fuN">' + t.followups.length + '</span>）</h2>' + (t.followups.length ? fuHtml : '<div class="empty">沒有待辦追蹤</div>') + '</div>' +
-        '<div class="card" id="refCard"><h2>轉介給我的職類（<span id="refN">' + t.referrals.length + '</span>）</h2>' + (t.referrals.length ? refHtml : '<div class="empty">沒有待受理轉介</div>') + '</div>';
+        '<div class="card" id="refCard"><h2>轉介給我的職類（<span id="refN">' + t.referrals.length + '</span>）</h2>' + (t.referrals.length ? refHtml : '<div class="empty">沒有待受理轉介</div>') + '</div>' +
+        reviewHtml(t.reviews || {}, ctxHtml);
       bindChips(view);
+      $$('form[data-rv]', view).forEach(function (f) {
+        f.addEventListener('submit', function (e) {
+          e.preventDefault();
+          var res = radio(f, 'rvres');
+          if (!res) return toast('請選擇覆核結果', 'err');
+          if (res === '需修正' && !f.fb.value.trim()) { f.fb.focus(); return toast('需修正時請寫回饋', 'err'); }
+          var btn = f.querySelector('button'); btn.disabled = true; btn.textContent = '寫入中…';
+          api('review', { id: f.getAttribute('data-rv'), result: res, feedback: f.fb.value.trim() }).then(function () {
+            var d = f.closest('details.task'), ok = document.createElement('div');
+            ok.className = 'task done'; ok.setAttribute('role', 'status'); ok.textContent = '✓ 已覆核：' + f.getAttribute('data-label') + '（' + res + '）';
+            d.parentNode.replaceChild(ok, d);
+            var n = $('#rvN'); if (n) n.textContent = Math.max(0, +n.textContent - 1);
+          }).catch(function (er) { toast(er.message, 'err'); btn.disabled = false; btn.textContent = '送出覆核'; });
+        });
+      });
       $$('[data-redo]', view).forEach(function (bt) {
         bt.addEventListener('click', function () { var p = bt.getAttribute('data-redo'); startRecord({ pack: packLive(p) ? p : '', entry: '待辦' }); });
       });
@@ -1255,6 +1314,29 @@
         });
       });
     }).catch(function (e) { view.innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; });
+  }
+
+  /** v2.7 教師覆核待辦（督導教師）與學習者收到的回饋 */
+  function reviewHtml(R, ctxHtml) {
+    var mine = R.mine || [], got = R.asLearner || [];
+    var h = '';
+    if (mine.length || (S.boot.user || {}).learner === 'TCH') {
+      h += '<div class="card" id="rvCard"><h2>學員紀錄待我覆核（<span id="rvN">' + mine.length + '</span>）</h2>' +
+        (mine.length ? mine.map(function (x) {
+          return '<details class="task"><summary><b>' + esc(x.learner || '學員') + '</b>　' + esc(x.packName) + '　' + esc(x.created) + '</summary>' +
+            '<form data-rv="' + esc(x.id) + '" data-label="' + esc((x.learner || '學員') + ' ' + x.packName) + '">' + ctxHtml(x.ctx) +
+            '<label class="f">覆核結果 <span class="req">*</span></label><div class="chips">' + chip('rvres', '同意', '同意', false, 'radio') + chip('rvres', '需修正', '需修正', false, 'radio') + '</div>' +
+            '<label class="f">給學員的回饋 <span class="note">（需修正時必填；學員會在自己的待辦看到）</span></label><textarea name="fb" rows="3" maxlength="2000"></textarea>' +
+            '<div class="actions-bar"><button class="btn small">送出覆核</button></div></form></details>';
+        }).join('') : '<div class="empty">沒有待覆核紀錄</div>') + '</div>';
+    }
+    if (isLearner()) {
+      h += '<div class="card"><h2>教師給我的回饋</h2>' + (got.length ? '<ul class="fb-list">' + got.map(function (x) {
+        return '<li><b>' + esc(x.date) + '　' + esc(x.packName) + '</b>　' + esc(x.teacher) + '：<span class="tag ' + (x.result === '同意' ? 'ok' : 'bad') + '">' + esc(x.result) + '</span>' +
+          (x.feedback ? '<div class="note">' + esc(x.feedback) + '</div>' : '') + '</li>';
+      }).join('') + '</ul>' : '<div class="empty">尚無覆核回饋</div>') + '</div>';
+    }
+    return h;
   }
 
   /* ---------- 病人歷史 ---------- */
@@ -1440,10 +1522,120 @@
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
+  /* ---------- v2.7：管制圖、改善看板、學習歷程、資料品質（數字一律讀後端彙總表，兩站同源） ---------- */
+  var SPC_BASE_TXT = { r24: '近 24 個月', all: '全部月份', first24: '最初 24 個月' };
+  function spcGroup(rows) {
+    var by = {}, order = [];
+    rows.forEach(function (r) { if (!by[r.code]) { by[r.code] = { code: r.code, name: r.name, type: r.type, dir: r.dir, pts: [] }; order.push(r.code); } by[r.code].pts.push(r); });
+    order.forEach(function (c) { by[c].pts.sort(function (a, b) { return a.ym < b.ym ? -1 : 1; }); var l = by[c].pts[by[c].pts.length - 1]; by[c].st = l.st; by[c].cls = l.cls; });
+    return { by: by, order: order };
+  }
+  function spcFmt(type, v) { return v === null || v === undefined ? '—' : type === 'u' ? String(Math.round(v * 10) / 10) : (Math.round(v * 1000) / 10) + '%'; }
+  /** SPC 圖：每點界限（p 圖隨分母變動）、各階段中心線分開畫、訊號點紅色、當月未完空心 */
+  function spcChart(s, months) {
+    var P = s.pts.slice(-(months || 24)); if (!P.length) return '<div class="note">無資料</div>';
+    var w = 640, h = 190, L = 44, R = 10, T = 10, B = 26;
+    var vals = []; P.forEach(function (p) { [p.v, p.ucl, p.lcl, p.cl].forEach(function (v) { if (v !== null && v !== undefined) vals.push(v); }); });
+    if (!vals.length) return '<div class="note">無可畫數值</div>';
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    if (s.type === 'p') { lo = Math.max(0, lo - 0.03); hi = Math.min(1, hi + 0.03); } else { lo = Math.max(0, lo - 1); hi = hi + 1; }
+    if (hi - lo < 1e-6) hi = lo + 1;
+    var n = P.length, X = function (i) { return L + (n === 1 ? (w - L - R) / 2 : i / (n - 1) * (w - L - R)); }, Y = function (v) { return T + (1 - (v - lo) / (hi - lo)) * (h - T - B); };
+    var path = function (key) { var d = ''; P.forEach(function (p, i) { var v = p[key]; if (v === null || v === undefined) { d += ' '; return; } d += (d && d.slice(-1) !== ' ' && P[i - 1] && P[i - 1].phase === p.phase ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1); }); return d.replace(/ +/g, ' ').trim(); };
+    var g = '';
+    [0, 0.5, 1].forEach(function (f) { var v = lo + (hi - lo) * f; g += '<line class="spc-grid" x1="' + L + '" x2="' + (w - R) + '" y1="' + Y(v).toFixed(1) + '" y2="' + Y(v).toFixed(1) + '"/><text class="spc-ax" x="' + (L - 4) + '" y="' + (Y(v) + 4).toFixed(1) + '" text-anchor="end">' + esc(spcFmt(s.type, v)) + '</text>'; });
+    P.forEach(function (p, i) { if (i > 0 && P[i - 1].phase !== p.phase) g += '<line class="spc-cut" x1="' + ((X(i) + X(i - 1)) / 2).toFixed(1) + '" x2="' + ((X(i) + X(i - 1)) / 2).toFixed(1) + '" y1="' + T + '" y2="' + (h - B) + '"/><text class="spc-ax" x="' + ((X(i) + X(i - 1)) / 2 + 3).toFixed(1) + '" y="' + (T + 10) + '">' + esc(p.phase) + '</text>'; });
+    g += '<path class="spc-cl" d="' + path('cl') + '"/><path class="spc-lim" d="' + path('ucl') + '"/><path class="spc-lim" d="' + path('lcl') + '"/><path class="spc-line" d="' + path('v') + '"/>';
+    P.forEach(function (p, i) {
+      if (p.v === null) return;
+      var cls = p.sig ? 'sig' : p.part ? 'part' : '';
+      g += '<circle class="spc-pt ' + cls + '" cx="' + X(i).toFixed(1) + '" cy="' + Y(p.v).toFixed(1) + '" r="3.2"><title>' + esc(p.ym + '　' + spcFmt(s.type, p.v) + (s.type === 'p' ? '（' + p.x + '／' + p.n + '）' : '') + (p.sig ? '　訊號：' + p.sig : '') + (p.part ? '　當月未完' : '')) + '</title></circle>';
+    });
+    var step = Math.max(1, Math.ceil(n / 8));
+    P.forEach(function (p, i) { if (i % step === 0 || i === n - 1) g += '<text class="spc-ax" x="' + X(i).toFixed(1) + '" y="' + (h - 8) + '" text-anchor="middle">' + esc(p.ym.slice(2)) + '</text>'; });
+    var last = P[n - 1];
+    var label = s.name + '：' + P.map(function (p) { return p.ym + ' ' + spcFmt(s.type, p.v) + (p.sig ? '（訊號）' : ''); }).join('、');
+    return '<svg class="spcsvg" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="' + esc(label) + '">' + g + '</svg>' +
+      '<div class="note">中心線 ' + spcFmt(s.type, last.cl) + (last.from ? '（基線 ' + esc(last.from) + '～' + esc(last.to) + '，' + last.bn + ' 個月）' : '') + '；虛線＝管制上下限（3σ）；紅點＝特殊原因訊號；空心點＝當月未完（不納入界限）。</div>';
+  }
+  function spcPanel(rows, base, fixed) {
+    var G = spcGroup(rows);
+    if (!G.order.length) return '<div class="card"><h2>統計製程管制（SPC）</h2><div class="empty">尚無管制圖資料（請確認已執行彙總）</div></div>';
+    var cls = { good: 'ok', bad: 'bad', neu: 'warn', stable: '', na: 'muted' };
+    return '<div class="card"><h2>統計製程管制（SPC）</h2><div class="row two"><div>' + (fixed ? '<div class="note">基線：近 24 個月（面向層級固定）</div>' : '<label class="f" for="spcBase">基線</label><select id="spcBase">' +
+      Object.keys(SPC_BASE_TXT).map(function (k) { return '<option value="' + k + '"' + (k === base ? ' selected' : '') + '>' + SPC_BASE_TXT[k] + '</option>'; }).join('') + '</select>') + '</div>' +
+      '<div class="note">' + esc((S.boot.settings.spcCut || '2026-11') + ' 新平台上線為已知特殊原因：前後各自計算管制界限。p 圖＝比率、u 圖＝每月人次。') + '</div></div>' +
+      '<div class="spcgrid">' + G.order.map(function (c) {
+        var s = G.by[c];
+        return '<details class="spc"' + (s.cls === 'bad' || s.cls === 'good' || s.cls === 'neu' ? ' open' : '') + '><summary><span class="iname">' + esc(s.name) + '</span><span class="spcst ' + (cls[s.cls] || '') + '">' + esc(s.st || '—') + '</span></summary>' + spcChart(s, 24) + '</details>';
+      }).join('') + '</div></div>';
+  }
+  /** 19 疾病面向：當月人次 vs 每月目標（目標唯一來源＝疾病包登錄） */
+  function targetMatrix(targets, packSummary, ym) {
+    if (!targets || !targets.length) return '';
+    var n = {}; (packSummary || []).forEach(function (p) { n[p.code] = p.n; });
+    return '<div class="card"><h2>疾病面向每月目標（' + esc(ym) + '）</h2><div class="note">目標值唯一來源＝控制台「疾病包登錄」每月目標人次；桃e 讀同一彙總表，數字一致。</div>' +
+      '<div class="tablewrap"><table class="t"><thead><tr><th>面向</th><th>當月人次</th><th>每月目標</th><th>達成</th><th>目標來源</th></tr></thead><tbody>' +
+      targets.map(function (t) {
+        var v = n[t.code] || 0, tg = t.target, r = tg ? Math.round(v / tg * 1000) / 10 : null;
+        return '<tr><td>' + esc(t.name) + '</td><td class="num">' + v + '</td><td class="num">' + (tg || '<span class="note">未設定</span>') + '</td><td>' + (r === null ? '—' : gapBar(Math.min(100, r), 100) + ' ' + r + '%') + '</td><td class="note">' + esc(t.src || '') + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+  }
+  function checksumLine(ins) { return ins && ins.checksum ? '<div class="note chk">月報核對碼 <code>' + esc(ins.checksum) + '</code>（桃e 顯示相同代碼即代表兩站數字同源一致）</div>' : ''; }
+  /** 學習歷程（PGY／UGY）：自到職日累計 */
+  function learnerPanel(rows, pid) {
+    var mine = rows.filter(function (r) { return r.pid === pid; }).sort(function (a, b) { return a.ym < b.ym ? -1 : 1; });
+    if (!mine.length) return '<div class="empty">尚無學習紀錄</div>';
+    var who = mine[mine.length - 1], st = (who.start || '').slice(0, 7);
+    var cum = mine.filter(function (r) { return !st || r.ym >= st; });
+    var t = { n: 0, f1: 0, f1d: 0, f2: 0, f2d: 0, ind: 0, pres: 0, rev: 0, revPend: 0, revDone: 0, beh: 0 }, packs = {};
+    cum.forEach(function (r) { Object.keys(t).forEach(function (k) { t[k] += r[k] || 0; }); r.packs.forEach(function (p) { if (p) packs[p] = 1; }); });
+    var np = Object.keys(packs).length, isPgy = who.type === 'PGY', goal = 10;
+    var r = function (a, b) { return b ? pct(a, b) + '%<span class="note">　' + a + '／' + b + '</span>' : '—'; };
+    var sup = t.ind + t.pres + t.rev;
+    return '<div class="dcards">' +
+      '<div class="dcard"><div class="dk">累計衛教件數' + (st ? '（' + esc(who.start.slice(0, 10)) + ' 起）' : '') + '</div><div class="big">' + t.n + '</div>' +
+      (isPgy ? '<div class="ds">EPA 3 參考門檻 ' + goal + ' 件：' + (t.n >= goal ? '已達' : '尚差 ' + (goal - t.n) + ' 件') + '（門檻待教學委員會簽核）</div>' + gapBar(Math.min(100, t.n / goal * 100), 100) : '<div class="ds">UGY 僅計本人紀錄</div>') + '</div>' +
+      '<div class="dcard"><div class="dk">首次教回完全理解</div><div class="big">' + (t.f1d ? pct(t.f1, t.f1d) + '%' : '—') + '</div><div class="ds">' + t.f1 + '／' + t.f1d + '　補強後最終 ' + r(t.f2, t.f2d) + '</div></div>' +
+      '<div class="dcard"><div class="dk">涵蓋疾病面向</div><div class="big">' + np + '</div><div class="ds">' + esc(Object.keys(packs).join('、')) + '</div></div>' +
+      '<div class="dcard"><div class="dk">督導方式</div><div class="big">' + (sup ? pct(t.ind, sup) + '%' : '—') + '</div><div class="ds">獨立 ' + t.ind + '／教師在場 ' + t.pres + '／事後覆核 ' + t.rev + '（獨立占比僅供信任等級參考，非判定）</div></div>' +
+      '<div class="dcard"><div class="dk">教師覆核</div><div class="big">' + t.revDone + '／' + (t.revDone + t.revPend) + '</div><div class="ds">待覆核 ' + t.revPend + '</div></div>' +
+      '<div class="dcard"><div class="dk">發現用藥不當行為</div><div class="big">' + t.beh + '</div><div class="ds">件數（病人層級）</div></div></div>' +
+      '<div class="tablewrap"><table class="t"><thead><tr><th>月份</th><th>件數</th><th>首次教回完全</th><th>最終教回完全</th><th>督導（獨立／在場／覆核）</th><th>覆核完成／待辦</th></tr></thead><tbody>' +
+      mine.slice().reverse().map(function (x) { return '<tr><td>' + esc(x.ym) + '</td><td class="num">' + x.n + '</td><td>' + r(x.f1, x.f1d) + '</td><td>' + r(x.f2, x.f2d) + '</td><td>' + x.ind + '／' + x.pres + '／' + x.rev + '</td><td>' + x.revDone + '／' + x.revPend + '</td></tr>'; }).join('') +
+      '</tbody></table></div>';
+  }
+  function dqPanel(dq) {
+
+    var ks = Object.keys(dq || {});
+    if (!ks.length) return '<div class="card"><h2>資料品質</h2><div class="empty">尚無資料品質指標</div></div>';
+    return '<div class="card"><h2>資料品質（近 3 個月，全部面向）</h2><div class="tablewrap"><table class="t"><thead><tr><th>指標</th><th>月份</th><th>值</th></tr></thead><tbody>' +
+      ks.sort().map(function (k) { return dq[k].map(function (x, i) {
+        var v = x.rate !== null ? x.rate + '%<span class="note">　' + x.num + '／' + x.den + '</span>' : x.median !== null ? '中位數 ' + x.median : (x.num === null ? '—' : x.num);
+        return '<tr>' + (i === 0 ? '<td rowspan="' + dq[k].length + '">' + esc(x.name || k) + '<span class="note">　' + esc(k) + '</span></td>' : '') + '<td>' + esc(x.ym) + '</td><td>' + v + '</td></tr>'; }).join(''); }).join('') +
+      '</tbody></table></div></div>';
+  }
+  function kanbanHtml(d) {
+    var cols = d.states;
+    return '<div class="card"><h2>改善看板</h2><div class="note">每月彙總時，最近一個完整月份出現 SPC 特殊原因訊號的指標會自動建卡（同指標同月份只建一次）。' + (d.canEdit ? '可更新狀態、負責人、原因假設與 PDSA。' : '僅組長（L2）以上可編輯。') + '</div>' +
+      '<div class="kanban">' + cols.map(function (st) {
+        var cs = d.cards.filter(function (c) { return c.status === st; });
+        return '<section class="kcol"><h3>' + esc(st) + '<span class="note">　' + cs.length + '</span></h3>' + (cs.length ? cs.map(function (c) {
+          return '<details class="kcard ' + (c.read === '惡化' ? 'bad' : c.read === '改善' ? 'good' : '') + '"><summary><b>' + esc(c.name) + '</b><div class="note">' + esc(c.packName + '｜' + c.ym + '｜' + c.read + '｜' + c.sig) + '</div></summary>' +
+            (d.canEdit ? '<form data-kb="' + esc(c.id) + '"><label class="f">狀態</label><select name="status">' + cols.map(function (s) { return '<option' + (s === c.status ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('') + '</select>' +
+              '<label class="f">負責人</label><input name="owner" maxlength="100" value="' + esc(c.owner) + '"><label class="f">原因假設</label><textarea name="cause" maxlength="500" rows="2">' + esc(c.cause) + '</textarea>' +
+              '<label class="f">PDSA</label><textarea name="pdsa" maxlength="500" rows="2">' + esc(c.pdsa) + '</textarea><button class="btn small" type="submit">儲存</button><span class="note">　更新 ' + esc(c.updated) + '</span></form>'
+              : '<div class="note">負責人 ' + esc(c.owner || '—') + '<br>原因假設 ' + esc(c.cause || '—') + '<br>PDSA ' + esc(c.pdsa || '—') + '</div>') + '</details>';
+        }).join('') : '<div class="note">—</div>') + '</section>';
+      }).join('') + '</div></div>';
+  }
   function viewDashboard(view) {
     var nowYm = today().slice(0, 7);
-    var V = S.dashView || 'DEPT';
-    var tabs = [['DEPT', '科總覽'], ['PACK', '照護面向'], ['ME', '本人'], ['TRAINEE', '學員'], ['DEV', '裝置與藥品']];
+    var U = S.boot.user || {}, lvN = { L1: 1, L2: 2, L3: 3, L4: 4 }[U.level] || 1;
+    var tabs = U.learner === 'UGY' ? [['LRN', '學習歷程']] : [['DEPT', '科總覽'], ['PACK', '照護面向'], ['ME', '本人']]
+      .concat(U.learner === 'PGY' || U.learner === 'TCH' || lvN >= 2 ? [['LRN', '學習歷程']] : [])
+      .concat(lvN >= 2 ? [['TRAINEE', '同仁']] : []).concat([['KANBAN', '改善看板'], ['DQ', '資料品質'], ['DEV', '裝置與藥品']]);
+    var V = S.dashView && tabs.some(function (t) { return t[0] === S.dashView; }) ? S.dashView : tabs[0][0];
     view.innerHTML = '<div class="card no-print"><h2>成效儀表板</h2><div class="seg" role="tablist" aria-label="儀表板視圖">' +
       tabs.map(function (x) { return '<button type="button" role="tab" aria-selected="' + (V === x[0]) + '" data-view="' + x[0] + '" class="' + (V === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') +
       '</div><div class="row two"><div id="dpWrap"><label class="f" for="dp" id="dpl">項目</label><select id="dp"></select></div>' +
@@ -1481,7 +1673,10 @@
       if (V === 'DEPT' || V === 'PACK') {
         $('#dpWrap').classList.toggle('hidden', V === 'DEPT');
         var pk = V === 'DEPT' ? 'ALL' : (sel.value && sel.value !== 'ALL' ? sel.value : (S.dashPack && S.dashPack !== 'ALL' ? S.dashPack : ''));
-        vapi('dashboard', { pack: pk || 'ALL', from: from, to: ym }).then(function (d) {
+        var base = V === 'PACK' ? 'r24' : (S.spcBase || 'r24');
+        Promise.all([vapi('dashboard', { pack: pk || 'ALL', from: from, to: ym }), vapi('insight', { pack: pk || 'ALL', base: base }).catch(function () { return null; })]).then(function (dd) {
+          var d = dd[0], ins = dd[1];
+          if (V === 'PACK' && !pk) ins = null;
           // v2.6.0：選單＝所有啟用面向（無資料者也可選，顯示「樣本不足」）＋僅有歷史資料之歸檔面向（排在最後）
           var seen = {}, packs = (S.boot.packs || []).filter(function (p) { return p.code && !seen[p.code] && (seen[p.code] = 1); }).map(function (p) { return { code: p.code, name: p.name }; });
           d.packs.forEach(function (p) { if (p.code !== 'ALL' && !seen[p.code]) { seen[p.code] = 1; packs.push(p); } });
@@ -1522,10 +1717,44 @@
             mine.map(function (p) { return '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.packName || p.pack) + '</td><td class="num">' + p.n + '</td><td class="num">' + p.due + '</td><td class="num">' + p.done + '</td></tr>'; }).join('') +
             '</tbody></table></div></details>' : '';
           $('#dres').innerHTML = '<div class="print-head">' + esc(S.boot.settings.hospital || '') + '　' + esc(title) + '　' + esc(ym) + '（列印 ' + today() + '）</div>' +
-            '<div class="dcards">' + cards + '</div>' + matrix + yearsTable(d.years, pk || 'ALL') +
+            checksumLine(ins) + '<div class="dcards">' + cards + '</div>' + (ins ? spcPanel(ins.spc, base, V === 'PACK') : '') +
+            (V === 'DEPT' && ins ? targetMatrix(ins.targets, d.packSummary, ym) : '') + matrix + yearsTable(d.years, pk || 'ALL') +
             '<div class="card"><h2>' + esc(title) + '：全部指標</h2>' + indicatorList(d.rows, ym, d.defs, pk || 'ALL') + '</div>' + ptable;
+          if ($('#spcBase')) $('#spcBase').addEventListener('change', function () { S.spcBase = this.value; load(); });
           $$('[data-goPack]', $('#dres')).forEach(function (b) { b.addEventListener('click', function () { S.dashView = 'PACK'; S.dashPack = b.getAttribute('data-goPack'); route(); }); });
           $('#dlast').textContent += '　已更新 ' + B.order.length + ' 項指標。';
+        }).catch(err);
+      } else if (V === 'LRN') {
+        vapi('insight', { pack: 'ALL', base: 'r24' }).then(function (ins) {
+          var ids = {}, people = [];
+          ins.learners.forEach(function (r) { if (!ids[r.pid] && (r.type === 'PGY' || r.type === 'UGY' || r.self)) { ids[r.pid] = 1; people.push(r); } });
+          $('#dpl').textContent = '學習者（可檢視者）';
+          sel.innerHTML = people.map(function (p) { return '<option value="' + esc(p.pid) + '">' + esc(p.name + '｜' + (p.type === 'UGY' ? 'UGY 學生' : p.type === 'PGY' ? 'PGY 學員' : p.type) + (p.self ? '（本人）' : '')) + '</option>'; }).join('');
+          $('#dpWrap').classList.toggle('hidden', people.length < 2);
+          if (S.dashKey && ids[S.dashKey]) sel.value = S.dashKey;
+          S.dashKey = sel.value;
+          $('#dlast').textContent = '最後彙總：' + (ins.lastRun || '尚未執行') + '。學習歷程自授權名單「到職日」起累計；PGY／UGY 只能看本人，臨床教師與管理者可看全部。';
+          $('#dres').innerHTML = checksumLine(ins) + '<div class="card"><h2>學習歷程</h2>' + (people.length ? learnerPanel(ins.learners, sel.value) : '<div class="empty">尚無可檢視的學習者紀錄</div>') + '</div>';
+        }).catch(err);
+      } else if (V === 'KANBAN') {
+        $('#dpWrap').classList.add('hidden');
+        var drawK = function (d) {
+          $('#dres').innerHTML = kanbanHtml(d);
+          $$('[data-kb]', $('#dres')).forEach(function (f) {
+            f.addEventListener('submit', function (e) {
+              e.preventDefault();
+              var b = f.querySelector('button'); b.disabled = true;
+              vapi('kanban', { id: f.getAttribute('data-kb'), status: f.status.value, owner: f.owner.value, cause: f.cause.value, pdsa: f.pdsa.value })
+                .then(function (d2) { toast('已更新看板卡片'); drawK(d2); }, function (e2) { b.disabled = false; toast(e2.message, 'err'); });
+            });
+          });
+        };
+        vapi('kanban', {}).then(drawK).catch(err);
+      } else if (V === 'DQ') {
+        $('#dpWrap').classList.add('hidden');
+        vapi('insight', { pack: 'ALL', base: 'r24' }).then(function (ins) {
+          $('#dlast').textContent = '最後彙總：' + (ins.lastRun || '尚未執行') + '。';
+          $('#dres').innerHTML = checksumLine(ins) + dqPanel(ins.dq);
         }).catch(err);
       } else if (V === 'ME' || V === 'TRAINEE') {
         vapi('dashboard', { pack: 'ALL', from: from, to: ym }).then(function (d) {
@@ -1579,7 +1808,7 @@
         }).catch(err);
       }
     };
-    $('#dp').addEventListener('change', function () { if (V === 'TRAINEE') S.dashKey = this.value; else if (V === 'DEV') S.dashKey = this.value; load(); });
+    $('#dp').addEventListener('change', function () { if (V === 'TRAINEE' || V === 'DEV' || V === 'LRN') S.dashKey = this.value; load(); });
     $('#dm').addEventListener('change', load);
     load();
   }
