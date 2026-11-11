@@ -316,3 +316,47 @@ details.spc > summary { display: flex; justify-content: space-between; gap: 8px;
 .kcard.bad { border-left-color: var(--bad); } .kcard.good { border-left-color: var(--ok); }
 .kcard input, .kcard textarea, .kcard select { width: 100%; }
 @media print { details.spc { break-inside: avoid; } }
+
+/* ===== v2.8 成效儀表板：區間、來源、漏斗、熱圖、小倍數、服務線 ===== */
+body:has(.kpi8) main { max-width: 1120px; }
+.filters .seg.quick { margin-top: 10px; }
+.filters .seg.quick button { padding: 4px 12px; font-size: .9rem; }
+.dcards.kpi8 { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.dcard.kcard2 .dfoot { align-items: flex-end; }
+.dcard.lowgood .delta.up { color: var(--bad); }
+.dcard.lowgood .delta.down { color: var(--ok); }
+svg.trend { display: block; overflow: visible; }
+svg.trend .tr-line { fill: none; stroke: var(--brand); stroke-width: 1.6; }
+svg.trend .tr-dot { fill: var(--brand); }
+svg.trend .tr-weak { fill: #fff; stroke: var(--muted); stroke-width: 1; }
+svg.trend .tr-cut { stroke: var(--muted); stroke-dasharray: 3 3; stroke-width: 1; }
+.dash2 { align-items: stretch; }
+.dash2 > .card { margin-bottom: 14px; }
+.funnel { display: grid; gap: 8px; margin-top: 8px; }
+.fstep { display: grid; grid-template-columns: 9.5em 1fr 3.2em 5.5em; align-items: center; gap: 8px; font-size: .9rem; }
+.fstep .fbar { height: 14px; background: var(--brand-soft); border-radius: 3px; overflow: hidden; }
+.fstep .fbar span { display: block; height: 100%; background: var(--brand); }
+.fstep .fnum { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.srcbar { display: flex; height: 16px; border-radius: 3px; overflow: hidden; margin: 10px 0; background: var(--line); }
+.sb0 { background: var(--brand); } .sb1 { background: #6b97b6; } .sb2 { background: #a9c3d6; } .sb3 { background: #d6e3ec; }
+.srclist { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: .9rem; }
+.srclist .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+table.heat th.hm { font-size: .72rem; font-weight: 400; color: var(--muted); padding: 4px 2px; text-align: center; white-space: nowrap; }
+table.heat td.hc { min-width: 26px; height: 26px; text-align: center; font-size: .75rem; font-variant-numeric: tabular-nums; border: 2px solid #fff; padding: 0; }
+table.heat td.h0 { background: #eef3f7; } table.heat td.h1 { background: #cfdfea; } table.heat td.h2 { background: #9fbfd5; }
+table.heat td.h3 { background: #5f90b2; color: #fff; } table.heat td.h4 { background: var(--brand); color: #fff; }
+table.heat td.hn { background: repeating-linear-gradient(45deg, #f5f7f9, #f5f7f9 3px, #e3e8ed 3px, #e3e8ed 6px); }
+table.heat td.old { background: #fafbfc; }
+.smgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.sm { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+.sm h3 { margin: 0 0 2px; font-size: .95rem; }
+.smrow { display: grid; grid-template-columns: 1fr 56px 4.2em; gap: 6px; align-items: center; font-size: .82rem; margin-top: 6px; }
+.smrow .smn { line-height: 1.3; }
+.smrow .smbar { height: 8px; background: var(--brand-soft); border-radius: 2px; overflow: hidden; }
+.smrow .smbar span { display: block; height: 100%; background: var(--brand); }
+.smrow .smv { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.tag.main { background: var(--brand-soft); color: var(--brand); border-color: #c5d6e3; }
+#packMulti .pm { margin: 6px 0; } #packMulti .chips { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 4px; }
+.packhead h2 { margin-bottom: 4px; }
+@media (max-width: 640px) { .fstep { grid-template-columns: 7em 1fr 2.6em; } .fstep .fconv { display: none; } }
+@media print { table.heat td.hc { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }

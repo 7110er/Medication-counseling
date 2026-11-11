@@ -187,7 +187,7 @@
     var d = S.drugIdx[code];
     if (!d) return null;
     return { code: d[0], brand: d[1], ing: d[2], atc: d[3], device: d[4], bs: d[5], gs: d[6],
-      packs: d[7] ? d[7].split(',') : [], avoid: d[8] ? d[8].split(',') : [] };
+      packs: d[7] ? d[7].split(',') : [], avoid: d[8] ? d[8].split(',') : [], core: d[9] ? d[9].split(',') : [] };
   }
   function searchDrugs(q, limit) {
     q = q.trim().toLowerCase();
@@ -436,7 +436,7 @@
 
       '<div class="card" data-sec="2"><h2>照護面向與標準回應</h2>' +
       '<div data-field="pack"><label class="f">主要照護面向 <span class="req">*</span></label><select name="pack">' + packOpts + '</select></div>' +
-      '<div id="packNote"></div><div id="packAlt"></div>' +
+      '<div id="packNote"></div><div id="packAlt"></div><div id="packMulti"></div>' +
       '<details class="sub"><summary>合併面向（共病）</summary><div class="chips" id="packs2"></div></details>' +
       '<div class="row two"><div><label class="f">問題分類</label><select name="cat"><option value="">全部</option></select></div>' +
       '<div><label class="f">搜尋題目</label><input type="search" name="qsearch" placeholder="輸入關鍵字"></div></div>' +
@@ -611,6 +611,13 @@
       if (!td || e.target.tagName === 'INPUT') return;
       var rb = $('input[type=radio]', td); if (rb && !rb.checked) rb.click();
     });
+    $('#packMulti', f).addEventListener('click', function (e) {
+      var b3 = e.target.closest('[data-multipack]');
+      if (!b3) return;
+      var pv = b3.getAttribute('data-multipack'), x = $('input[name="packs2"][value="' + pv + '"]', f);
+      if (x) { x.checked = !x.checked; syncChip(x); updateAvoid(f); }
+      renderPackMulti(f); S.dirty = true;
+    });
     $('#packAlt', f).addEventListener('click', function (e) {
       var b2 = e.target.closest('[data-altpack]');
       if (!b2) return;
@@ -680,6 +687,18 @@
       return '<button type="button" class="chip" data-altpack="' + esc(p) + '">' + esc(packName(p)) + '</button>';
     }).join('') + '</div>' : '';
   }
+  /** v2.8 D9：藥品對應多個已確認核心面向時自動展開，選填本次照護面向（寫入合併面向，計入該面向人次） */
+  function renderPackMulti(f) {
+    var box = $('#packMulti', f); if (!box) return;
+    var cur = f.pack.value, sel = vals(f, 'packs2'), rows = [];
+    f._drugs.forEach(function (c) {
+      var d = drug(c); if (!d || d.core.length < 2) return;
+      var opts = d.core.filter(function (p) { return p !== cur && packLive(p) && S.boot.allPacks.some(function (x) { return x.code === p; }); });
+      if (opts.length) rows.push('<div class="pm"><span class="note">' + esc(d.brand) + ' 對應多個疾病面向，本次也照護（選填，計入面向人次）：</span><span class="chips">' +
+        opts.map(function (p) { return '<button type="button" class="chip' + (sel.indexOf(p) >= 0 ? ' on' : '') + '" data-multipack="' + esc(p) + '" aria-pressed="' + (sel.indexOf(p) >= 0) + '">' + esc(packName(p)) + '</button>'; }).join('') + '</span></div>');
+    });
+    box.innerHTML = rows.join('');
+  }
   function removeDrug(f, code) {
     f._drugs = f._drugs.filter(function (c) { return c !== code; });
     delete f._dev[code];
@@ -702,7 +721,7 @@
       if (Object.keys(devs).length) list.innerHTML += '<div class="msg info">多項裝置併用：送出後摘要會附上已簽核之「多品項使用順序」規則。</div>';
     }
     $('#cardFill', f).classList.toggle('hidden', !f._drugs.length);
-    renderPackAlt(f);
+    renderPackAlt(f); renderPackMulti(f);
     renderDevices(f);
     updateAvoid(f);
     updateMisuseHint(f);
@@ -917,7 +936,7 @@
     var code = f.pack.value;
     var p = S.boot.packs.filter(function (x) { return x.code === code; })[0];
     f._qAll = false;
-    renderPackAlt(f);
+    renderPackAlt(f); renderPackMulti(f);
     $('#packNote', f).innerHTML = (f.pack.dataset.auto === '1' ? '<div class="note"><span class="auto">自動</span> 依藥品帶入，可修改</div>' : '') +
       (p && p.status === '過渡沿用' ? '<div class="msg info">此面向沿用舊版題庫，內容尚未完成來源複審；回應請依現行指引自行確認。</div>' : '');
     var keep = vals(f, 'packs2');
@@ -1588,21 +1607,22 @@
     if (!mine.length) return '<div class="empty">尚無學習紀錄</div>';
     var who = mine[mine.length - 1], st = (who.start || '').slice(0, 7);
     var cum = mine.filter(function (r) { return !st || r.ym >= st; });
-    var t = { n: 0, f1: 0, f1d: 0, f2: 0, f2d: 0, ind: 0, pres: 0, rev: 0, revPend: 0, revDone: 0, beh: 0 }, packs = {};
+    var t = { n: 0, ep: 0, epO: 0, epI: 0, f1: 0, f1d: 0, f2: 0, f2d: 0, ind: 0, pres: 0, rev: 0, revPend: 0, revDone: 0, beh: 0 }, packs = {};
     cum.forEach(function (r) { Object.keys(t).forEach(function (k) { t[k] += r[k] || 0; }); r.packs.forEach(function (p) { if (p) packs[p] = 1; }); });
     var np = Object.keys(packs).length, isPgy = who.type === 'PGY', goal = 10;
     var r = function (a, b) { return b ? pct(a, b) + '%<span class="note">　' + a + '／' + b + '</span>' : '—'; };
     var sup = t.ind + t.pres + t.rev;
     return '<div class="dcards">' +
-      '<div class="dcard"><div class="dk">累計衛教件數' + (st ? '（' + esc(who.start.slice(0, 10)) + ' 起）' : '') + '</div><div class="big">' + t.n + '</div>' +
-      (isPgy ? '<div class="ds">EPA 3 參考門檻 ' + goal + ' 件：' + (t.n >= goal ? '已達' : '尚差 ' + (goal - t.n) + ' 件') + '（門檻待教學委員會簽核）</div>' + gapBar(Math.min(100, t.n / goal * 100), 100) : '<div class="ds">UGY 僅計本人紀錄</div>') + '</div>' +
+      '<div class="dcard"><div class="dk">門診病人衛教人次（EPA 3）' + (st ? '（' + esc(who.start.slice(0, 10)) + ' 起）' : '') + '</div><div class="big">' + t.epO + '</div>' +
+      (isPgy ? '<div class="ds">參考門檻 ' + goal + ' 例：' + (t.epO >= goal ? '已達' : '尚差 ' + (goal - t.epO) + ' 例') + '（門檻待教學委員會簽核；人次＝同病人同日同面向計 1）</div>' + gapBar(Math.min(100, t.epO / goal * 100), 100) : '<div class="ds">UGY 僅計本人紀錄</div>') + '</div>' +
+      '<div class="dcard"><div class="dk">住院／出院前衛教人次（EPA 5 佐證）</div><div class="big">' + t.epI + '</div><div class="ds">全部人次 ' + t.ep + '｜紀錄筆數 ' + t.n + '</div></div>' +
       '<div class="dcard"><div class="dk">首次教回完全理解</div><div class="big">' + (t.f1d ? pct(t.f1, t.f1d) + '%' : '—') + '</div><div class="ds">' + t.f1 + '／' + t.f1d + '　補強後最終 ' + r(t.f2, t.f2d) + '</div></div>' +
       '<div class="dcard"><div class="dk">涵蓋疾病面向</div><div class="big">' + np + '</div><div class="ds">' + esc(Object.keys(packs).join('、')) + '</div></div>' +
       '<div class="dcard"><div class="dk">督導方式</div><div class="big">' + (sup ? pct(t.ind, sup) + '%' : '—') + '</div><div class="ds">獨立 ' + t.ind + '／教師在場 ' + t.pres + '／事後覆核 ' + t.rev + '（獨立占比僅供信任等級參考，非判定）</div></div>' +
       '<div class="dcard"><div class="dk">教師覆核</div><div class="big">' + t.revDone + '／' + (t.revDone + t.revPend) + '</div><div class="ds">待覆核 ' + t.revPend + '</div></div>' +
       '<div class="dcard"><div class="dk">發現用藥不當行為</div><div class="big">' + t.beh + '</div><div class="ds">件數（病人層級）</div></div></div>' +
-      '<div class="tablewrap"><table class="t"><thead><tr><th>月份</th><th>件數</th><th>首次教回完全</th><th>最終教回完全</th><th>督導（獨立／在場／覆核）</th><th>覆核完成／待辦</th></tr></thead><tbody>' +
-      mine.slice().reverse().map(function (x) { return '<tr><td>' + esc(x.ym) + '</td><td class="num">' + x.n + '</td><td>' + r(x.f1, x.f1d) + '</td><td>' + r(x.f2, x.f2d) + '</td><td>' + x.ind + '／' + x.pres + '／' + x.rev + '</td><td>' + x.revDone + '／' + x.revPend + '</td></tr>'; }).join('') +
+      '<div class="tablewrap"><table class="t"><thead><tr><th>月份</th><th>人次（門診／住院）</th><th>紀錄筆數</th><th>首次教回完全</th><th>最終教回完全</th><th>督導（獨立／在場／覆核）</th><th>覆核完成／待辦</th></tr></thead><tbody>' +
+      mine.slice().reverse().map(function (x) { return '<tr><td>' + esc(x.ym) + '</td><td class="num">' + (x.ep || 0) + '（' + (x.epO || 0) + '／' + (x.epI || 0) + '）</td><td class="num">' + x.n + '</td><td>' + r(x.f1, x.f1d) + '</td><td>' + r(x.f2, x.f2d) + '</td><td>' + x.ind + '／' + x.pres + '／' + x.rev + '</td><td>' + x.revDone + '／' + x.revPend + '</td></tr>'; }).join('') +
       '</tbody></table></div>';
   }
   function dqPanel(dq) {
@@ -1629,6 +1649,145 @@
         }).join('') : '<div class="note">—</div>') + '</section>';
       }).join('') + '</div></div>';
   }
+  /* ---------- v2.8：區間篩選、病人來源切片、人次去重後之科總覽（D8–D13） ---------- */
+  function ymSeq(a, b) { var o = []; if (!a || !b || a > b) return o; var m = a; while (m <= b && o.length < 400) { o.push(m); m = ymShift(m, 1); } return o; }
+  var QUICK = [['R3', '近 3 月'], ['R6', '近 6 月'], ['R12', '近 12 月'], ['R24', '近 24 月'], ['YTD', '本年度'], ['ALLT', '全期']];
+  var SRC_TXT = { ALL: '全部來源', OPD: '門診', IPD: '住院', ER: '急診', BR: '分院', COMM: '社區', HOME: '居家', TEL: '電話／遠距', DC: '出院前（住院）', UNK: '未填（舊系統）' };
+  /** 快選 → 起訖（皆含當月；當月為進行中，趨勢線以空心點標示樣本不足） */
+  function quickRange(q, nowYm, minYm) {
+    var lc = nowYm, n = { R3: 3, R6: 6, R12: 12, R24: 24 }[q];
+    if (n) return { from: ymShift(lc, -(n - 1)), to: lc };
+    if (q === 'YTD') return { from: nowYm.slice(0, 4) + '-01', to: nowYm };
+    return { from: minYm || ymShift(nowYm, -23), to: nowYm };
+  }
+  /** 區間彙總：同代碼分子、分母相加（不是月比率平均） */
+  function aggRange(x, months) {
+    var o = { num: 0, den: 0, n: 0, hasDen: false, median: null };
+    if (!x) return null;
+    months.forEach(function (m) { var r = x.m[m]; if (!r) return; o.n++; o.num += r.num || 0; if (r.den !== null && r.den !== undefined && r.den !== '') { o.den += r.den; o.hasDen = true; } if (r.median !== null && r.median !== undefined && r.median !== '') o.median = r.median; });
+    if (!o.n) return null;
+    var minN = S.boot.settings.minN || 10;
+    o.small = o.hasDen && o.den < minN;
+    o.rate = o.hasDen && o.den && !o.small ? Math.round(o.num / o.den * 1000) / 10 : null;
+    return o;
+  }
+  function deltaPP(cur, prev) {
+    if (!cur || !prev || cur.rate === null || prev.rate === null) return '<span class="note">前期無可比</span>';
+    var d = Math.round((cur.rate - prev.rate) * 10) / 10;
+    return '<span class="delta ' + (d > 0 ? 'up' : d < 0 ? 'down' : '') + '">' + (d > 0 ? '▲ ' : d < 0 ? '▼ ' : '＝ ') + Math.abs(d) + ' 個百分點</span><span class="note"> 對前一等長區間</span>';
+  }
+  function deltaN(cur, prev) {
+    if (!prev) return '<span class="note">前期無資料</span>';
+    var d = Math.round((cur - prev) / prev * 1000) / 10;
+    return '<span class="delta ' + (d > 0 ? 'up' : d < 0 ? 'down' : '') + '">' + (d > 0 ? '▲ ' : d < 0 ? '▼ ' : '＝ ') + Math.abs(d) + '%</span><span class="note"> 對前期 ' + prev + '</span>';
+  }
+  /** 區間趨勢線（月為點）：比率或件數；分母不足之月為空心點不連線；切分月畫虛線 */
+  function trendSvg(x, months, kind, cut, w) {
+    w = w || 180; var h = 40, minN = S.boot.settings.minN || 10;
+    var pts = months.map(function (m) { var r = x && x.m[m]; if (!r) return null; if (kind === 'n') return { m: m, v: r.num || 0 }; return r.den && r.den >= minN ? { m: m, v: r.num / r.den * 100 } : (r.den ? { m: m, v: r.num / r.den * 100, weak: true } : null); });
+    var vs = pts.filter(Boolean).map(function (p) { return p.v; });
+    if (vs.length < 2) return '<span class="note">趨勢資料不足</span>';
+    var lo = kind === 'n' ? 0 : Math.max(0, Math.min.apply(null, vs) - 5), hi = kind === 'n' ? Math.max.apply(null, vs) || 1 : Math.min(100, Math.max.apply(null, vs) + 5);
+    if (hi - lo < 1e-9) hi = lo + 1;
+    var n = months.length, X = function (i) { return n === 1 ? w / 2 : 3 + i / (n - 1) * (w - 6); }, Y = function (v) { return h - 4 - (v - lo) / (hi - lo) * (h - 8); };
+    var d = '', prevOk = false, g = '';
+    pts.forEach(function (p, i) {
+      if (cut && months[i] === cut && i > 0) g += '<line class="tr-cut" x1="' + X(i - 0.5).toFixed(1) + '" x2="' + X(i - 0.5).toFixed(1) + '" y1="0" y2="' + h + '"/>';
+      if (!p || p.weak) { prevOk = false; return; }
+      d += (prevOk ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(p.v).toFixed(1); prevOk = true;
+    });
+    pts.forEach(function (p, i) { if (p) g += '<circle class="' + (p.weak ? 'tr-weak' : 'tr-dot') + '" cx="' + X(i).toFixed(1) + '" cy="' + Y(p.v).toFixed(1) + '" r="2.2"><title>' + esc(p.m + '：' + (kind === 'n' ? p.v : Math.round(p.v * 10) / 10 + '%') + (p.weak ? '（分母不足）' : '')) + '</title></circle>'; });
+    var label = (kind === 'n' ? '逐月人次：' : '逐月比率：') + pts.map(function (p, i) { return months[i] + ' ' + (p ? (kind === 'n' ? p.v : Math.round(p.v * 10) / 10 + '%') : '無'); }).join('、');
+    return '<svg class="trend" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="' + esc(label) + '">' + g + '<path class="tr-line" d="' + d + '"/></svg>';
+  }
+  /** KPI 卡（比率）：區間值、分子／分母、前期比較、逐月趨勢；分母不足時提示放寬 */
+  function kpiCard(title, x, R, sentence, opts) {
+    opts = opts || {};
+    var cur = aggRange(x, R.months), prev = aggRange(x, R.prev);
+    var big = !cur ? '—' : cur.small ? '<span class="small-n">n＝' + cur.den + '</span>' : cur.rate === null ? '—' : cur.rate + '%';
+    var hint = cur && cur.small ? '<div class="note">本區間分母不足 ' + (S.boot.settings.minN || 10) + '，<button type="button" class="linkbtn" data-widen="1">放寬為全期</button></div>' : '';
+    return '<div class="dcard kcard2' + (opts.lowGood ? ' lowgood' : '') + '"><div class="dk">' + esc(title) + (opts.tag ? ' <span class="tag">' + esc(opts.tag) + '</span>' : '') + '</div><div class="big">' + big + '</div>' +
+      '<div class="ds">' + (cur && cur.hasDen ? cur.num + '／' + cur.den + '　' : '') + esc(sentence || '') + '</div>' + hint +
+      '<div class="dfoot">' + (cur && !cur.small ? deltaPP(cur, prev) : '') + trendSvg(x, R.months, 'rate', R.cut) + '</div></div>';
+  }
+  /** 追蹤漏斗（O6）：應追蹤 → 已到期 → 完成 → 準時完成 */
+  function funnelHtml(g, R) {
+    var a = function (c, k) { var s = aggRange(g(c), R.months); return s ? s[k] : 0; };
+    var st = [['應追蹤（需追蹤＝是）', a('O6', 'num')], ['已到期', a('C6', 'den')], ['已完成', a('C6', 'num')], ['到期後 7 日內完成', a('G5', 'num')]];
+    var top = Math.max(1, st[0][1], st[1][1]);
+    return '<div class="card"><h2>追蹤漏斗</h2><div class="note">結果指標（核心藥持續、警訊複述、未非計畫就醫）只來自已完成追蹤；卡在哪一關，結果就缺在哪裡。</div><div class="funnel">' +
+      st.map(function (s, i) {
+        var conv = i && st[i - 1][1] ? Math.round(s[1] / st[i - 1][1] * 100) + '%' : '';
+        return '<div class="fstep"><span class="flabel">' + esc(s[0]) + '</span><span class="fbar"><span style="width:' + Math.max(2, s[1] / top * 100) + '%"></span></span><span class="fnum">' + s[1] + '</span><span class="note fconv">' + (conv ? '承接 ' + conv : '') + '</span></div>';
+      }).join('') + '</div></div>';
+  }
+  function heatClass(p) { return p === null ? 'hn' : p >= 100 ? 'h4' : p >= 75 ? 'h3' : p >= 50 ? 'h2' : p >= 25 ? 'h1' : 'h0'; }
+  /** 面向 × 月熱圖：面向人次 ÷ 每月目標（只畫疾病面向；季判讀面向另標） */
+  function heatmapHtml(ps, R) {
+    var dz = ps.filter(function (p) { return p.cls === '疾病' || p.cls === '跨職類'; });
+    if (!dz.length) return '';
+    var ms = R.months.slice(-24);
+    return '<div class="card"><h2>疾病面向 × 月：目標達成</h2><div class="note">色階＝當月面向人次 ÷ 每月目標（0–24／25–49／50–74／75–99／≥100%）；斜線＝未設目標；' + esc(R.cut) + ' 前為舊系統（多數紀錄無疾病面向，不列入目標分母）。點面向名稱進入該面向。</div>' +
+      '<div class="tablewrap"><table class="t heat"><thead><tr><th>面向</th>' + ms.map(function (m) { return '<th class="hm">' + esc(m.slice(2).replace('-', '/')) + '</th>'; }).join('') + '<th>區間達成</th></tr></thead><tbody>' +
+      dz.map(function (p) {
+        return '<tr><td><button type="button" class="linkbtn" data-goPack="' + esc(p.code) + '">' + esc(p.name) + '</button>' + (p.period === '季' ? '<span class="tag">季判讀</span>' : '') + (p.cls === '跨職類' ? '<span class="tag">跨職類</span>' : '') + '</td>' +
+          ms.map(function (m) { var c = p.m[m] || {}, v = c.t1 !== undefined ? c.t1 : (c.n || 0), pc = p.target && m >= R.cut ? Math.round(v / p.target * 100) : null;
+            return '<td class="hc ' + (m < R.cut ? 'old' : heatClass(pc)) + '" title="' + esc(m + '：' + v + ' 人次' + (p.target ? '／目標 ' + p.target : '')) + '">' + (m < R.cut ? '' : v || '') + '</td>'; }).join('') +
+          '<td class="num">' + (p.tAch === null || p.tAch === undefined ? '<span class="note">未設目標</span>' : p.tAch + '%<span class="note">　' + p.tNum + '／' + p.tDen + '</span>') + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+  }
+  /** 疾病小倍數：每面向主顯 3 項（D12），同一 0–100% 刻度 */
+  function smallMultiples(ps, defs, R) {
+    var dz = ps.filter(function (p) { return (p.cls === '疾病' || p.cls === '跨職類') && (p.n || Object.keys(p.k).length); });
+    var none = ps.filter(function (p) { return (p.cls === '疾病' || p.cls === '跨職類') && !p.n && !Object.keys(p.k).length; });
+    var mains = function (pk) { return Object.keys(defs || {}).filter(function (c) { return defs[c].pack === pk && defs[c].main; }).sort(); };
+    return '<div class="card"><h2>疾病面向小倍數：主顯 3 項（過程／結果／安全平衡）</h2><div class="note">區間分子／分母合計；分母不足 ' + (S.boot.settings.minN || 10) + ' 顯示 n。標「監測」者為非藥師可控之結果，只供觀察不作績效。</div><div class="smgrid">' +
+      dz.map(function (p) {
+        var ks = mains(p.code);
+        return '<section class="sm"><h3><button type="button" class="linkbtn" data-goPack="' + esc(p.code) + '">' + esc(p.name) + '</button></h3><div class="note">' + p.n + ' 人次' + (p.tAch !== null && p.tAch !== undefined ? '｜目標達成 ' + p.tAch + '%' : '') + (p.period === '季' ? '｜季判讀' : '') + '</div>' +
+          (ks.length ? ks.map(function (c) {
+            var k = p.k[c.split('-')[1]], d = defs[c], nm = d.name.replace(/^[^：]+：/, '');
+            var v = !k ? '<span class="note">無資料</span>' : k.small ? '<span class="small-n">n' + k.den + '</span>' : k.rate + '%';
+            return '<div class="smrow"><span class="smn">' + esc(nm) + (d.nature && d.nature !== '績效' ? ' <span class="tag">' + esc(d.nature) + '</span>' : '') + '</span><span class="smbar"><span style="width:' + (k && k.rate !== null ? k.rate : 0) + '%"></span></span><span class="smv">' + v + '</span></div>';
+          }).join('') : '<div class="note">尚未設定主顯指標</div>') + '</section>';
+      }).join('') + '</div>' + (none.length ? '<div class="note">本區間無紀錄：' + esc(none.map(function (p) { return p.name; }).join('、')) + '</div>' : '') + '</div>';
+  }
+  /** 服務線看板（D10）：不計入疾病 KPI 與目標 */
+  function serviceLines(ps, R) {
+    var sl = ps.filter(function (p) { return p.cls === '服務線' || p.cls === '歷史'; });
+    if (!sl.length) return '<div class="card"><h2>服務線（不計入疾病面向 KPI 與目標達成）</h2><div class="empty">本區間無服務線紀錄</div></div>';
+    return '<div class="card"><h2>服務線（不計入疾病面向 KPI 與目標達成）</h2><div class="tablewrap"><table class="t"><thead><tr><th>服務線</th><th>人次</th><th>紀錄筆數</th><th>對前一等長區間</th><th>逐月人次</th></tr></thead><tbody>' +
+      sl.map(function (p) {
+        var x = { m: {} }; Object.keys(p.m).forEach(function (m) { x.m[m] = { num: p.m[m].n || 0 }; });
+        return '<tr' + (p.hist ? ' class="hist"' : '') + '><td><button type="button" class="linkbtn" data-goPack="' + esc(p.code) + '">' + esc(p.name) + '</button>' + (p.hist ? '<span class="tag">歷史</span>' : '') + '</td><td class="num">' + p.n + '</td><td class="num">' + p.rec + '</td><td>' + deltaN(p.n, p.nPrev) + '</td><td>' + trendSvg(x, R.months.slice(-24), 'n', R.cut, 160) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+  }
+  /** 全部指標（區間版）：依類型分組；分母不足收合；每列可展開定義 */
+  function indicatorListRange(rows, R, defs, pk) {
+    var B = byCodeOf(rows.filter(function (r) { return r.code !== 'U1'; }));
+    if (!B.order.length) return indicatorList([], R.to, defs, pk);
+    var types = ['結果', '過程', '平衡', '結構'];
+    var item = function (c) {
+      var x = B.by[c], cur = aggRange(x, R.months), prev = aggRange(x, R.prev), d = (defs || {})[c] || {};
+      var val = !cur ? '<span class="note">本區間無資料</span>' : cur.small ? '<span class="note">n＝' + cur.den + '，樣本不足</span>' : cur.rate !== null ? '<b>' + cur.rate + '%</b><span class="note">　' + cur.num + '／' + cur.den + '</span>' :
+        cur.median !== null && !cur.hasDen ? '<b>中位數 ' + cur.median + '</b><span class="note">（最近月）</span>' : '<b>' + cur.num + '</b>';
+      return '<details class="ind"><summary><span class="iname">' + esc(x.name) + (d.main ? ' <span class="tag main">主顯</span>' : '') + (d.nature && d.nature !== '績效' ? ' <span class="tag">' + esc(d.nature) + '</span>' : '') + '</span><span class="ival">' + val + '</span>' +
+        gapBar(cur && cur.rate, null, cur && cur.small) + '<span class="itr">' + (cur && cur.rate !== null ? deltaPP(cur, prev) : '') + trendSvg(x, R.months.slice(-24), cur && cur.hasDen ? 'rate' : 'n', R.cut, 130) + '</span></summary>' + defHtml(c, defs) + (d.ver ? '<div class="note">' + esc(d.ver) + '</div>' : '') + '</details>';
+    };
+    var isSmall = function (c) { var a = aggRange(B.by[c], R.months); return !a || a.small; };
+    var big = B.order.filter(function (c) { return !isSmall(c); }), small = B.order.filter(isSmall);
+    var out = types.map(function (t) { var list = big.filter(function (c) { return B.by[c].type === t; }); return list.length ? '<h3 class="itype">' + t + '指標</h3><div class="ilist">' + list.map(item).join('') + '</div>' : ''; }).join('');
+    return (out || '<div class="empty">本區間所有指標樣本不足</div>') + (small.length ? '<details class="sub"><summary>樣本不足或本區間無資料（' + small.length + '）</summary><div class="ilist">' + small.map(item).join('') + '</div></details>' : '');
+  }
+  /** 病人來源分布（R4）：區間人次依來源；點選即切換來源篩選 */
+  function sourceSplit(d) {
+    var ss = d.srcSplit || {}, ks = Object.keys(ss).filter(function (k) { return ss[k] > 0; }).sort(function (a, b) { return ss[b] - ss[a]; });
+    var tot = ks.reduce(function (a, k) { return a + ss[k]; }, 0);
+    if (!tot) return '<div class="card"><h2>病人來源分布</h2><div class="empty">本區間無資料</div></div>';
+    return '<div class="card"><h2>病人來源分布</h2><div class="note">區間人次依病人來源；點來源名稱即以該來源篩選全頁。</div><div class="srcbar" role="img" aria-label="' + esc(ks.map(function (k) { return (SRC_TXT[k] || k) + ' ' + ss[k]; }).join('、')) + '">' +
+      ks.map(function (k, i) { return '<span class="sb' + (i % 4) + '" style="flex:' + ss[k] + '"></span>'; }).join('') + '</div><ul class="srclist">' +
+      ks.map(function (k, i) { return '<li><span class="sw sb' + (i % 4) + '"></span><button type="button" class="linkbtn" data-src="' + esc(k) + '">' + esc(SRC_TXT[k] || k) + '</button> <b>' + ss[k] + '</b><span class="note">（' + Math.round(ss[k] / tot * 1000) / 10 + '%）</span></li>'; }).join('') + '</ul></div>';
+  }
   function viewDashboard(view) {
     var nowYm = today().slice(0, 7);
     var U = S.boot.user || {}, lvN = { L1: 1, L2: 2, L3: 3, L4: 4 }[U.level] || 1;
@@ -1636,17 +1795,37 @@
       .concat(U.learner === 'PGY' || U.learner === 'TCH' || lvN >= 2 ? [['LRN', '學習歷程']] : [])
       .concat(lvN >= 2 ? [['TRAINEE', '同仁']] : []).concat([['KANBAN', '改善看板'], ['DQ', '資料品質'], ['DEV', '裝置與藥品']]);
     var V = S.dashView && tabs.some(function (t) { return t[0] === S.dashView; }) ? S.dashView : tabs[0][0];
+    if (!S.dashQuick && !S.dashFrom) S.dashQuick = 'R12';
     view.innerHTML = '<div class="card no-print"><h2>成效儀表板</h2><div class="seg" role="tablist" aria-label="儀表板視圖">' +
       tabs.map(function (x) { return '<button type="button" role="tab" aria-selected="' + (V === x[0]) + '" data-view="' + x[0] + '" class="' + (V === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') +
-      '</div><div class="row two"><div id="dpWrap"><label class="f" for="dp" id="dpl">項目</label><select id="dp"></select></div>' +
-      '<div><label class="f" for="dm">月份</label><select id="dm"></select></div></div>' +
+      '</div><div class="filters"><div class="row three"><div><label class="f" for="dfrom">起始月份</label><select id="dfrom"></select></div><div><label class="f" for="dto">結束月份</label><select id="dto"></select></div>' +
+      '<div><label class="f" for="dsrc">病人來源</label><select id="dsrc"><option value="ALL">全部來源</option></select></div></div>' +
+      '<div class="seg quick" role="group" aria-label="快選區間">' + QUICK.map(function (q) { return '<button type="button" data-quick="' + q[0] + '" class="' + (S.dashQuick === q[0] ? 'on' : '') + '">' + q[1] + '</button>'; }).join('') + '</div>' +
+      '<div id="dpWrap"><label class="f" for="dp" id="dpl">項目</label><select id="dp"></select></div></div>' +
       '<div class="actions-bar left"><button type="button" class="btn small ghost" id="dPrint">列印／存 PDF</button><button type="button" class="btn small ghost hidden" id="dCsv">下載 CSV</button></div>' +
       '<div class="note" id="dlast" role="status" aria-live="polite"></div></div><div id="dres"><div class="empty">載入中…</div></div>';
-    var months = [];
-    for (var i = 0; i < 24 || (S.dashMinYm && ymShift(nowYm, -i) >= S.dashMinYm && i < 240); i++) months.push(ymShift(nowYm, -i));
-    $('#dm').innerHTML = months.map(function (m) { return '<option>' + m + '</option>'; }).join('');
-    $('#dm').value = S.dashYm || nowYm;
+    var fillMonths = function (minYm) {
+      var ms = [], m = nowYm, lo = minYm && minYm < ymShift(nowYm, -23) ? minYm : ymShift(nowYm, -23);
+      while (m >= lo && ms.length < 240) { ms.push(m); m = ymShift(m, -1); }
+      var opts = ms.map(function (x) { return '<option>' + x + '</option>'; }).join('');
+      $('#dfrom').innerHTML = opts; $('#dto').innerHTML = opts;
+      var r = S.dashQuick ? quickRange(S.dashQuick, nowYm, minYm) : { from: S.dashFrom, to: S.dashTo };
+      if (r.from < lo) r.from = lo;
+      $('#dfrom').value = r.from; $('#dto').value = r.to;
+    };
+    fillMonths(S.dashMinYm);
+    var range = function () {
+      var f = $('#dfrom').value, t = $('#dto').value;
+      if (f > t) { var z = f; f = t; t = z; }
+      var months = ymSeq(f, t), L = months.length;
+      return { from: f, to: t, months: months, prev: ymSeq(ymShift(f, -L), ymShift(f, -1)), cut: S.boot.settings.spcCut || '2026-11', src: $('#dsrc').value || 'ALL' };
+    };
     $$('[data-view]', view).forEach(function (b) { b.addEventListener('click', function () { S.dashView = b.getAttribute('data-view'); S.dashKey = ''; route(); }); });
+    $$('[data-quick]', view).forEach(function (b) { b.addEventListener('click', function () {
+      S.dashQuick = b.getAttribute('data-quick'); $$('[data-quick]', view).forEach(function (x) { x.classList.toggle('on', x === b); });
+      var r = quickRange(S.dashQuick, nowYm, S.dashMinYm); $('#dfrom').value = r.from; $('#dto').value = r.to; load(); }); });
+    ['#dfrom', '#dto'].forEach(function (s) { $(s).addEventListener('change', function () { S.dashQuick = ''; $$('[data-quick]', view).forEach(function (x) { x.classList.remove('on'); }); load(); }); });
+    $('#dsrc').addEventListener('change', function () { S.dashSrc = this.value; load(); });
     $('#dPrint').addEventListener('click', function () {
       document.body.classList.add('print-dash');
       $$('details.ind, details.sub', $('#dres')).forEach(function (x) { x.open = true; });
@@ -1654,30 +1833,33 @@
       setTimeout(function () { document.body.classList.remove('print-dash'); }, 500);
     });
     var lastRows = [];
-    $('#dCsv').addEventListener('click', function () { csvDownload('成效指標_' + (S.dashPack || 'ALL') + '_' + $('#dm').value + '.csv', lastRows); });
+    $('#dCsv').addEventListener('click', function () { var R = range(); csvDownload('成效指標_' + (S.dashPack || 'ALL') + '_' + R.src + '_' + R.from + '_' + R.to + '.csv', lastRows); });
     var foot = function (d) {
-      $('#dlast').textContent = '最後彙總：' + (d.lastRun || '尚未執行') + '。比率＝分子／分母；分母低於 ' + S.boot.settings.minN + ' 不顯示比率。已排除測試病歷號；含舊系統歸檔紀錄（僅計舊系統有記錄的欄位：人次、問題發現、跨職類需求、問題分類、病人來源、舊版滿意度）。點任一指標可看定義與外部對照。';
-      // v2.6.1：月份選單延伸至最早有資料之月份（含舊系統歸檔紀錄）
-      if (d.minYm && d.minYm !== S.dashMinYm) {
-        S.dashMinYm = d.minYm;
-        var ms = [], m = nowYm, cur = $('#dm').value;
-        while (m >= d.minYm && ms.length < 240) { ms.push(m); m = ymShift(m, -1); }
-        if (ms.length > 24) { $('#dm').innerHTML = ms.map(function (x) { return '<option>' + x + '</option>'; }).join(''); $('#dm').value = cur; }
+      $('#dlast').textContent = '最後彙總：' + (d.lastRun || '尚未執行') + '。計數規則 ' + (d.countRule || '—') + '：面向人次＝同病人同日同面向計 1；整體人次＝同病人同日計 1；紀錄筆數另列為工作量。卡片為區間內分子／分母合計，並與前一等長區間比較；分母低於 ' + S.boot.settings.minN + ' 不顯示比率。已排除測試病歷號。';
+      if (d.minYm && d.minYm !== S.dashMinYm) { S.dashMinYm = d.minYm; var f = $('#dfrom').value, t = $('#dto').value; fillMonths(d.minYm); if (!S.dashQuick) { $('#dfrom').value = f; $('#dto').value = t; } }
+      if (d.sources) {
+        var cur = S.dashSrc || 'ALL';
+        $('#dsrc').innerHTML = ['ALL'].concat(d.sources).map(function (s) { return '<option value="' + esc(s) + '"' + (s === cur ? ' selected' : '') + '>' + esc(SRC_TXT[s] || s) + '</option>'; }).join('');
       }
     };
     var err = function (e) { $('#dres').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; };
+    var bindCommon = function () {
+      $$('[data-goPack]', $('#dres')).forEach(function (b) { b.addEventListener('click', function () { S.dashView = 'PACK'; S.dashPack = b.getAttribute('data-goPack'); route(); }); });
+      $$('[data-src]', $('#dres')).forEach(function (b) { b.addEventListener('click', function () { S.dashSrc = b.getAttribute('data-src'); $('#dsrc').value = S.dashSrc; load(); }); });
+      $$('[data-widen]', $('#dres')).forEach(function (b) { b.addEventListener('click', function () { S.dashQuick = 'ALLT'; route(); }); });
+      if ($('#spcBase')) $('#spcBase').addEventListener('change', function () { S.spcBase = this.value; load(); });
+    };
     var load = function () {
-      S.dashYm = $('#dm').value;
-      var ym = S.dashYm, sel = $('#dp'), from = ymShift(ym, -11);
+      var R = range(), sel = $('#dp'), ym = R.to, from = R.from;
+      S.dashFrom = R.from; S.dashTo = R.to;
       $('#dCsv').classList.toggle('hidden', !(V === 'DEPT' || V === 'PACK'));
       if (V === 'DEPT' || V === 'PACK') {
         $('#dpWrap').classList.toggle('hidden', V === 'DEPT');
         var pk = V === 'DEPT' ? 'ALL' : (sel.value && sel.value !== 'ALL' ? sel.value : (S.dashPack && S.dashPack !== 'ALL' ? S.dashPack : ''));
         var base = V === 'PACK' ? 'r24' : (S.spcBase || 'r24');
-        Promise.all([vapi('dashboard', { pack: pk || 'ALL', from: from, to: ym }), vapi('insight', { pack: pk || 'ALL', base: base }).catch(function () { return null; })]).then(function (dd) {
+        Promise.all([vapi('dashboard', { pack: pk || 'ALL', from: R.from, to: R.to, src: R.src }), vapi('insight', { pack: pk || 'ALL', base: base }).catch(function () { return null; })]).then(function (dd) {
           var d = dd[0], ins = dd[1];
           if (V === 'PACK' && !pk) ins = null;
-          // v2.6.0：選單＝所有啟用面向（無資料者也可選，顯示「樣本不足」）＋僅有歷史資料之歸檔面向（排在最後）
           var seen = {}, packs = (S.boot.packs || []).filter(function (p) { return p.code && !seen[p.code] && (seen[p.code] = 1); }).map(function (p) { return { code: p.code, name: p.name }; });
           d.packs.forEach(function (p) { if (p.code !== 'ALL' && !seen[p.code]) { seen[p.code] = 1; packs.push(p); } });
           if (V === 'PACK') {
@@ -1685,43 +1867,48 @@
             if (!pk) { if (!packs.length) { $('#dres').innerHTML = '<div class="empty">尚無面向資料</div>'; return; } S.dashPack = packs[0].code; sel.value = S.dashPack; return load(); }
             S.dashPack = pk; sel.value = pk;
           } else S.dashPack = 'ALL';
-          foot(d); lastRows = d.rows;
+          foot(d); lastRows = d.rows.filter(function (r) { return r.ym >= R.from && r.ym <= R.to; });
           var B = byCodeOf(d.rows), g = function (c) { return B.by[c]; };
-          var cards, title;
+          var rangeTxt = R.from + '～' + R.to + '（' + R.months.length + ' 個月）｜' + (SRC_TXT[R.src] || R.src);
+          var c1 = g('C1'), c0 = g('C0'), a1 = aggRange(c1, R.months) || { num: 0 }, p1 = aggRange(c1, R.prev), a0 = aggRange(c0, R.months) || { num: 0 };
+          var uq = null; Object.keys(d.uniq || {}).forEach(function (k) { var u = d.uniq[k]; if (u.from === R.from && u.to === R.to) uq = u; });
+          var nCard = function (title) {
+            return '<div class="dcard kcard2"><div class="dk">' + esc(title) + '</div><div class="big">' + a1.num + '</div><div class="ds">' + (uq ? '不重複病人 ' + uq.patients + '　' : '<span class="note">不重複病人：快選區間提供</span>　') + '紀錄筆數 ' + a0.num + '</div>' +
+              '<div class="dfoot">' + deltaN(a1.num, p1 ? p1.num : 0) + trendSvg(c1, R.months, 'n', R.cut) + '</div></div>';
+          };
+          var html = '<div class="print-head">' + esc(S.boot.settings.hospital || '') + '　' + esc(rangeTxt) + '（列印 ' + today() + '）</div>' + checksumLine(ins);
           if (V === 'DEPT') {
-            title = '科總覽';
-            var c1 = g('C1');
-            cards = (c1 ? '<div class="dcard"><div class="dk">指導人次</div><div class="big">' + ((c1.m[ym] || {}).num || 0) + '</div><div class="ds">不重複病人 ' + ((c1.m[ym] || {}).den || 0) +
-              '　近 12 月 ' + (d.kpis.records || 0) + ' 人次</div><div class="dfoot">' + spark(m12Of(ym).map(function (m) { var r = c1.m[m]; return r ? r.num : null; }).map(function (v, i, a) {
-                var mx = Math.max.apply(null, a.filter(function (z) { return z !== null; }).concat([1])); return v === null ? null : Math.round(v / mx * 100); }), null, 110) + '</div></div>' : '') +
-              dcard(g('G1'), ym, '跨面向：追蹤時未自行停用核心藥') + dcard(g('G2'), ym, '能說出需立即就醫的警訊') + dcard(g('G3'), ym, '追蹤期間未非計畫急診或住院（自述）');
+            var dz = (d.packSummary || []).filter(function (p) { return p.cls === '疾病' || p.cls === '跨職類'; });
+            var tN = 0, tD = 0; dz.forEach(function (p) { if (p.tDen) { tN += p.tNum; tD += p.tDen; } });
+            var tCard = '<div class="dcard kcard2"><div class="dk">疾病面向目標達成</div><div class="big">' + (tD ? Math.round(tN / tD * 1000) / 10 + '%' : '—') + '</div><div class="ds">' + (tD ? tN + '／' + tD + ' 人次（新平台月份；服務線不計）' : '區間內無新平台月份或未設目標') + '</div><div class="dfoot"><span class="note">目標唯一來源＝疾病包登錄</span></div></div>';
+            html += '<div class="dcards kpi8">' + nCard('整體人次（同病人同日計 1）') + tCard +
+              kpiCard('教回完全理解（最終）', g('C3'), R, '排除無法應答') + kpiCard('不當用藥行為發現', g('M1'), R, '新平台紀錄') +
+              kpiCard('介入接受', g('M2'), R, '病人接受藥師建議') + kpiCard('追蹤準時完成', g('G5'), R, '到期後 7 日內') +
+              kpiCard('核心藥未自行中斷', g('G1'), R, '追蹤完成者') + kpiCard('30 日同題重複諮詢', g('B1'), R, '不同日；越低越好', { lowGood: true }) + '</div>' +
+              '<div class="row two dash2">' + funnelHtml(g, R) + sourceSplit(d) + '</div>' +
+              heatmapHtml(d.packSummary || [], R) + smallMultiples(d.packSummary || [], d.defs, R) + serviceLines(d.packSummary || [], R);
           } else {
-            title = (sel.options[sel.selectedIndex] || {}).text || '';
-            var kc = function (k) { return g(pk + '-' + k); };
-            cards = dcard(g('C1') ? { name: '指導人次', m: Object.keys(g('C1').m).reduce(function (o, m) { var r = g('C1').m[m]; o[m] = { num: r.num, den: r.den, rate: null }; return o; }, {}) } : null, ym, '') +
-              dcard(g('C3'), ym, '教回完全正確') + dcard(kc('K3'), ym, '') + dcard(kc('K4'), ym, '');
+            var title = (sel.options[sel.selectedIndex] || {}).text || '', meta = (d.packs || []).filter(function (p) { return p.code === pk; })[0] || {};
+            var t1 = g('T1'), tN2 = 0, tD2 = 0;
+            if (t1) R.months.forEach(function (m) { var r = t1.m[m]; if (r && m >= R.cut && r.target) { tN2 += r.num || 0; tD2 += r.target; } });
+            var mains = Object.keys(d.defs || {}).filter(function (c) { return d.defs[c].pack === pk && d.defs[c].main; }).sort();
+            var others = Object.keys(d.defs || {}).filter(function (c) { return d.defs[c].pack === pk && /-K\d$/.test(c) && !d.defs[c].main; }).sort();
+            html += '<div class="card packhead"><h2>' + esc(title) + '</h2><div class="note">' + esc(rangeTxt) + (meta.cls === '服務線' ? '｜服務線：不計入疾病 KPI 與目標達成' : '') + (meta.period === '季' ? '｜低量面向：請以季或累計判讀，單月比率不具意義' : '') + (meta.pharm === false ? '｜跨職類照護：藥師非主責，以下不作藥師績效' : '') + '</div></div>' +
+              '<div class="dcards">' + nCard('面向人次（同病人同日計 1）') +
+              (tD2 ? '<div class="dcard kcard2"><div class="dk">目標達成</div><div class="big">' + Math.round(tN2 / tD2 * 1000) / 10 + '%</div><div class="ds">' + tN2 + '／' + tD2 + ' 人次（新平台月份）</div><div class="dfoot"><span class="note">含次面向與藥品唯一歸因</span></div></div>' : '') +
+              kpiCard('教回完全理解（最終）', g('C3'), R, '') +
+              mains.map(function (c) { return kpiCard(d.defs[c].name.replace(/^[^：]+：/, ''), g(c), R, d.defs[c].type, { tag: d.defs[c].nature !== '績效' ? d.defs[c].nature : '主顯', lowGood: /K5$/.test(c) }); }).join('') + '</div>' +
+              (others.length ? '<details class="card sub"><summary><h2>其餘面向指標（' + others.length + '）</h2></summary><div class="dcards">' + others.map(function (c) { return kpiCard(d.defs[c].name.replace(/^[^：]+：/, ''), g(c), R, d.defs[c].type, { tag: d.defs[c].nature !== '績效' ? d.defs[c].nature : '', lowGood: /K5$/.test(c) }); }).join('') + '</div></details>' : '') +
+              funnelHtml(g, R);
           }
-          var matrix = '';
-          if (V === 'DEPT' && d.packSummary && d.packSummary.length) {
-            var kcell = function (c) { return !c ? '<td class="mx none">—</td>' : c.small || c.rate === null ? '<td class="mx small" title="n＝' + (c.den || 0) + '">n' + (c.den || 0) + '</td>' :
-              '<td class="mx" style="--v:' + c.rate + '" title="' + c.num + '／' + c.den + '">' + Math.round(c.rate) + '</td>'; };
-            matrix = '<div class="card"><h2>面向一覽（' + esc(ym) + '）</h2><div class="note">數字為當月比率（%）；n＝分母不足 ' + S.boot.settings.minN + '。K1–K2 過程、K3–K4 結果、K5 平衡（越低越好）。點面向名稱進入該面向。</div>' +
-              '<div class="tablewrap"><table class="t matrix"><thead><tr><th>面向</th><th>當月人次</th><th>12 月人次</th><th>教回完全</th><th>K1</th><th>K2</th><th>K3</th><th>K4</th><th>K5</th></tr></thead><tbody>' +
-              d.packSummary.map(function (p) {
-                return '<tr' + (p.hist ? ' class="hist"' : '') + '><td><button type="button" class="linkbtn" data-goPack="' + esc(p.code) + '">' + esc(p.name) + '</button>' + (p.hist ? '<span class="tag">歷史</span>' : '') + '</td><td class="num">' + p.n + '</td><td class="num">' + p.n12 + '</td>' + kcell(p.tb) +
-                  ['K1', 'K2', 'K3', 'K4', 'K5'].map(function (k) { return kcell(p.k[k]); }).join('') + '</tr>';
-              }).join('') + '</tbody></table></div></div>';
-          }
-          var mine = (d.person || []).filter(function (p) { return p.ym === ym; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
-          var ptable = d.level >= 2 && mine.length ? '<details class="card sub"><summary><h2>單位工作量（' + esc(ym) + '，依姓名排序，非排名）</h2></summary><div class="tablewrap"><table class="t"><thead><tr><th>人員</th><th>面向</th><th>件數</th><th>追蹤到期</th><th>追蹤完成</th></tr></thead><tbody>' +
-            mine.map(function (p) { return '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.packName || p.pack) + '</td><td class="num">' + p.n + '</td><td class="num">' + p.due + '</td><td class="num">' + p.done + '</td></tr>'; }).join('') +
+          var people = {}; (d.person || []).forEach(function (p) { var k = p.name + '|' + p.pack; var o = people[k] = people[k] || { name: p.name, pack: p.packName || p.pack, n: 0, ep: 0, due: 0, done: 0 }; o.n += p.n; o.ep += p.ep; o.due += p.due; o.done += p.done; });
+          var pl = Object.keys(people).map(function (k) { return people[k]; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+          var ptable = d.level >= 2 && pl.length ? '<details class="card sub"><summary><h2>單位工作量（區間合計，依姓名排序，非排名）</h2></summary><div class="tablewrap"><table class="t"><thead><tr><th>人員</th><th>面向</th><th>人次</th><th>紀錄筆數</th><th>追蹤到期</th><th>追蹤完成</th></tr></thead><tbody>' +
+            pl.map(function (p) { return '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.pack) + '</td><td class="num">' + p.ep + '</td><td class="num">' + p.n + '</td><td class="num">' + p.due + '</td><td class="num">' + p.done + '</td></tr>'; }).join('') +
             '</tbody></table></div></details>' : '';
-          $('#dres').innerHTML = '<div class="print-head">' + esc(S.boot.settings.hospital || '') + '　' + esc(title) + '　' + esc(ym) + '（列印 ' + today() + '）</div>' +
-            checksumLine(ins) + '<div class="dcards">' + cards + '</div>' + (ins ? spcPanel(ins.spc, base, V === 'PACK') : '') +
-            (V === 'DEPT' && ins ? targetMatrix(ins.targets, d.packSummary, ym) : '') + matrix + yearsTable(d.years, pk || 'ALL') +
-            '<div class="card"><h2>' + esc(title) + '：全部指標</h2>' + indicatorList(d.rows, ym, d.defs, pk || 'ALL') + '</div>' + ptable;
-          if ($('#spcBase')) $('#spcBase').addEventListener('change', function () { S.spcBase = this.value; load(); });
-          $$('[data-goPack]', $('#dres')).forEach(function (b) { b.addEventListener('click', function () { S.dashView = 'PACK'; S.dashPack = b.getAttribute('data-goPack'); route(); }); });
+          $('#dres').innerHTML = html + (ins ? spcPanel(ins.spc, base, V === 'PACK') : '') + yearsTable(d.years, pk || 'ALL') +
+            '<div class="card"><h2>' + esc(V === 'DEPT' ? '科總覽' : (sel.options[sel.selectedIndex] || {}).text || '') + '：全部指標（' + esc(R.from + '～' + R.to) + '）</h2>' + indicatorListRange(d.rows, R, d.defs, pk || 'ALL') + '</div>' + ptable;
+          bindCommon();
           $('#dlast').textContent += '　已更新 ' + B.order.length + ' 項指標。';
         }).catch(err);
       } else if (V === 'LRN') {
@@ -1733,7 +1920,7 @@
           $('#dpWrap').classList.toggle('hidden', people.length < 2);
           if (S.dashKey && ids[S.dashKey]) sel.value = S.dashKey;
           S.dashKey = sel.value;
-          $('#dlast').textContent = '最後彙總：' + (ins.lastRun || '尚未執行') + '。學習歷程自授權名單「到職日」起累計；PGY／UGY 只能看本人，臨床教師與管理者可看全部。';
+          $('#dlast').textContent = '最後彙總：' + (ins.lastRun || '尚未執行') + '。學習歷程自授權名單「到職日」起累計（不受上方區間篩選）；人次＝同病人同日同面向計 1；PGY／UGY 只能看本人，臨床教師與管理者可看全部。';
           $('#dres').innerHTML = checksumLine(ins) + '<div class="card"><h2>學習歷程</h2>' + (people.length ? learnerPanel(ins.learners, sel.value) : '<div class="empty">尚無可檢視的學習者紀錄</div>') + '</div>';
         }).catch(err);
       } else if (V === 'KANBAN') {
@@ -1757,7 +1944,7 @@
           $('#dres').innerHTML = checksumLine(ins) + dqPanel(ins.dq);
         }).catch(err);
       } else if (V === 'ME' || V === 'TRAINEE') {
-        vapi('dashboard', { pack: 'ALL', from: from, to: ym }).then(function (d) {
+        vapi('dashboard', { pack: 'ALL', from: R.from, to: R.to, src: 'ALL' }).then(function (d) {
           foot(d);
           var people = d.people || [];
           if (V === 'TRAINEE') {
@@ -1767,29 +1954,28 @@
             S.dashKey = sel.value;
           } else $('#dpWrap').classList.add('hidden');
           var who = V === 'ME' ? people.filter(function (p) { return p.self; })[0] : people.filter(function (p) { return p.pid === sel.value; })[0];
-          if (!who) { $('#dres').innerHTML = '<div class="empty">' + (V === 'ME' ? '近 12 個月尚無您的紀錄' : '沒有可檢視的同仁資料') + '</div>'; return; }
+          if (!who) { $('#dres').innerHTML = '<div class="empty">' + (V === 'ME' ? '所選區間尚無您的紀錄' : '沒有可檢視的同仁資料') + '</div>'; return; }
           var tot = {}; who.months.forEach(function (m) { Object.keys(m).forEach(function (k) { if (typeof m[k] === 'number') tot[k] = (tot[k] || 0) + m[k]; }); });
-          var cur = who.months.filter(function (m) { return m.ym === ym; })[0] || {};
-          var cards = d.metrics.map(function (m) {
+          var epCard = '<div class="dcard"><div class="dk">人次（同病人同日同面向計 1）</div><div class="big">' + (tot['人次'] || 0) + '</div><div class="ds">紀錄筆數 ' + (tot['件數'] || 0) + '（工作量）</div></div>';
+          var cards = epCard + d.metrics.map(function (m) {
             var own = tot[m[3]] >= 1 ? pct(tot[m[2]] || 0, tot[m[3]]) : null, few = (tot[m[3]] || 0) < 5;
-            return '<div class="dcard"><div class="dk">' + esc(m[1]) + '</div><div class="big">' + (own === null ? '—' : few ? '<span class="small-n">樣本少（n＝' + tot[m[3]] + '）</span>' : own + '%') + '</div><div class="ds">近 12 月 ' + (tot[m[2]] || 0) + '／' + (tot[m[3]] || 0) +
-              (cur[m[3]] ? '　本月 ' + (cur[m[2]] || 0) + '／' + cur[m[3]] : '') + '</div><div class="dfoot">' + band(d.dist[m[0]], few ? null : own) + '</div></div>';
+            return '<div class="dcard"><div class="dk">' + esc(m[1]) + '</div><div class="big">' + (own === null ? '—' : few ? '<span class="small-n">樣本少（n＝' + tot[m[3]] + '）</span>' : own + '%') + '</div><div class="ds">區間 ' + (tot[m[2]] || 0) + '／' + (tot[m[3]] || 0) + '</div><div class="dfoot">' + band(d.dist[m[0]], few ? null : own) + '</div></div>';
           }).join('');
           var sup = function (m) { var a = m['督導_獨立'] || 0, b = m['督導_在場'] || 0, c = m['督導_覆核'] || 0, t = a + b + c; return { a: a, b: b, c: c, t: t }; };
-          var months = m12Of(ym).map(function (m) { return who.months.filter(function (x) { return x.ym === m; })[0] || { ym: m }; });
-          var trend = '<div class="tablewrap"><table class="t"><thead><tr><th>月份</th><th>件數</th><th>教回完全</th><th>發現問題或不當行為</th><th>介入接受</th><th>追蹤準時</th><th>督導（獨立／在場／覆核）</th><th>填寫秒數中位數</th></tr></thead><tbody>' +
+          var months = R.months.map(function (m) { return who.months.filter(function (x) { return x.ym === m; })[0] || { ym: m }; });
+          var trend = '<div class="tablewrap"><table class="t"><thead><tr><th>月份</th><th>人次</th><th>紀錄筆數</th><th>教回完全</th><th>發現問題或不當行為</th><th>介入接受</th><th>追蹤準時</th><th>督導（獨立／在場／覆核）</th><th>填寫秒數中位數</th></tr></thead><tbody>' +
             months.filter(function (m) { return m['件數'] || m['追蹤到期數']; }).reverse().map(function (m) {
               var s2 = sup(m), r = function (a, b) { return b ? pct(a || 0, b) + '%<span class="note">　' + (a || 0) + '／' + b + '</span>' : '—'; };
-              return '<tr><td>' + esc(m.ym) + '</td><td class="num">' + (m['件數'] || 0) + '</td><td>' + r(m['教回完全'], m['教回分母']) + '</td><td>' + r(m['發現件數'], m['件數']) + '</td><td>' + r(m['介入接受'], m['介入分母']) +
+              return '<tr><td>' + esc(m.ym) + '</td><td class="num">' + (m['人次'] || 0) + '</td><td class="num">' + (m['件數'] || 0) + '</td><td>' + r(m['教回完全'], m['教回分母']) + '</td><td>' + r(m['發現件數'], m['件數']) + '</td><td>' + r(m['介入接受'], m['介入分母']) +
                 '</td><td>' + r(m['追蹤準時'], m['追蹤到期數']) + '</td><td>' + (s2.t ? '<span class="stack" role="img" aria-label="' + esc('獨立 ' + s2.a + '、在場 ' + s2.b + '、覆核 ' + s2.c) + '"><span class="s1" style="flex:' + s2.a + '"></span><span class="s2" style="flex:' + s2.b + '"></span><span class="s3" style="flex:' + s2.c + '"></span></span> ' + s2.a + '／' + s2.b + '／' + s2.c : '—') +
                 '</td><td class="num">' + (m.secMed === null || m.secMed === undefined ? '—' : m.secMed) + '</td></tr>';
             }).join('') + '</tbody></table></div>';
           var st = sup(tot);
-          $('#dres').innerHTML = '<div class="print-head">' + esc(S.boot.settings.hospital || '') + '　' + (V === 'ME' ? '藥師個人成效' : '學習護照：' + esc(who.name)) + '　' + esc(from) + '～' + esc(ym) + '（列印 ' + today() + '）</div>' +
-            '<div class="card"><h2>' + (V === 'ME' ? '我的近 12 個月' : esc(who.name) + '：近 12 個月') + '</h2><div class="note">藍點＝' + (V === 'ME' ? '本人' : '此同仁') + '；灰帶＝科內四分位區間；直線＝中位數。分布只含 12 個月分母 ≥5 的同仁，不顯示姓名、不排名。</div>' +
+          $('#dres').innerHTML = '<div class="print-head">' + esc(S.boot.settings.hospital || '') + '　' + (V === 'ME' ? '藥師個人成效' : '學習護照：' + esc(who.name)) + '　' + esc(R.from) + '～' + esc(R.to) + '（列印 ' + today() + '）</div>' +
+            '<div class="card"><h2>' + (V === 'ME' ? '我的成效' : esc(who.name)) + '（' + esc(R.from + '～' + R.to) + '）</h2><div class="note">藍點＝' + (V === 'ME' ? '本人' : '此同仁') + '；灰帶＝科內四分位區間；直線＝中位數。分布只含區間分母 ≥5 的同仁，不顯示姓名、不排名。</div>' +
             '<div class="dcards">' + cards + '</div></div>' +
             (V === 'TRAINEE' ? '<div class="card"><h2>督導方式累計</h2><div class="ds">獨立 ' + st.a + '　教師在場 ' + st.b + '　教師事後覆核 ' + st.c +
-              (st.t ? '　（獨立占 ' + pct(st.a, st.t) + '%，可作 EPA 8 信任等級之參考，非判定）' : '　（尚無督導方式紀錄）') + '</div></div>' : '') +
+              (st.t ? '　（獨立占 ' + pct(st.a, st.t) + '%，可作信任等級之參考，非判定）' : '　（尚無督導方式紀錄）') + '</div></div>' : '') +
             '<div class="card"><h2>逐月明細</h2>' + trend + '</div>';
         }).catch(err);
       } else {
@@ -1804,12 +1990,11 @@
           if (!d.key) { S.dashKey = d.keys[0].key; return load(); }
           sel.value = d.key;
           $('#dlast').textContent = '最後彙總：' + (d.lastRun || '尚未執行') + '。D 指標以技巧評估為單位；分母低於 ' + S.boot.settings.minN + ' 時不顯示比率。';
-          $('#dres').innerHTML = '<div class="card"><h2>' + esc(sel.options[sel.selectedIndex].text) + '</h2>' + indicatorList(d.rows, ym, {}) + '</div>';
+          $('#dres').innerHTML = '<div class="card"><h2>' + esc(sel.options[sel.selectedIndex].text) + '</h2>' + indicatorListRange(d.rows, R, {}) + '</div>';
         }).catch(err);
       }
     };
     $('#dp').addEventListener('change', function () { if (V === 'TRAINEE' || V === 'DEV' || V === 'LRN') S.dashKey = this.value; load(); });
-    $('#dm').addEventListener('change', load);
     load();
   }
 
