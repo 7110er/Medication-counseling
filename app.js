@@ -771,30 +771,75 @@
   }
 
   /* --- 裝置技巧評估 --- */
+  /* v2.9：條件式檢核（與後端 condEval_／applicableItems_／verdictV29_ 同規則） */
+  function condEval(cond, tags, ctx) {
+    var s = String(cond || '').replace(/\s+/g, '');
+    if (!s || s === 'ALL') return true;
+    if (!/^[!A-Z_:&|0-9]+$/.test(s)) return false;
+    var ok = true;
+    var v = s.split('|').some(function (g) {
+      return g.split('&').every(function (t) {
+        var neg = t.charAt(0) === '!'; if (neg) t = t.slice(1);
+        var m = t.match(/^([AC]):([A-Z_0-9]+)$/);
+        if (!m) { ok = false; return false; }
+        var x = m[1] === 'A' ? tags.indexOf(m[2]) >= 0 : ctx.indexOf(m[2]) >= 0;
+        return neg ? !x : x;
+      });
+    });
+    return ok && v;
+  }
+  function devAttr(c) {
+    var a = (S.boot.devAttrs || {})[c];
+    return a ? { tags: a[0] || [], self: a[1] || 'Y', status: a[2] || '預設', params: a[3] || '', model: a[4] || '' } : { tags: [], self: 'Y', status: '預設', params: '', model: '' };
+  }
+  function applicable(dv, c, ctx) {
+    var at = devAttr(c);
+    return dv.checklist.filter(function (k) {
+      if ((k.state || '上線') !== '上線') return false;
+      if (at.status === '待實物' && /A:/.test(k.cond || '')) return false;
+      return condEval(k.cond || 'ALL', at.tags, ctx || []);
+    });
+  }
+  function ctxUsed(dv) {
+    var u = {};
+    dv.checklist.forEach(function (k) { if ((k.state || '上線') === '上線') (String(k.cond || '').match(/C:[A-Z_0-9]+/g) || []).forEach(function (m) { u[m.slice(2)] = 1; }); });
+    return (S.boot.devCtx || []).filter(function (x) { return u[x[0]]; });
+  }
   function renderDevices(f) {
     var box = $('#devList', f);
-    var items = f._drugs.filter(function (c) { return S.boot.devices[drug(c).device]; });
-    $('#devCard', f).classList.toggle('hidden', !items.length);
-    // 保留已填資料
-    items.forEach(function (c) { if (!f._dev[c]) f._dev[c] = { on: true, kind: S.last[c] ? 'REVIEW' : 'FIRST', methods: ['DEMO', 'RETURN'], results: {}, errors: [], aid: 'NONE', operator: 'SELF', verdict: '' }; });
-    box.innerHTML = items.map(function (c) {
-      var d = drug(c), dv = S.boot.devices[d.device], st = f._dev[c];
+    var all = f._drugs.filter(function (c) { return S.boot.devices[drug(c).device]; });
+    var staffOnly = all.filter(function (c) { return devAttr(c).self === 'N'; });
+    var items = all.filter(function (c) { return devAttr(c).self !== 'N'; });
+    $('#devCard', f).classList.toggle('hidden', !all.length);
+    items.forEach(function (c) { if (!f._dev[c]) f._dev[c] = { on: true, kind: S.last[c] ? 'REVIEW' : 'FIRST', methods: ['DEMO', 'RETURN'], results: {}, errors: [], aid: 'NONE', operator: 'SELF', verdict: '', ctx: [] }; });
+    var row = function (k, v, nm) {
+      return '<tr><td>' + (k.critical ? '<b class="crit">關鍵</b> ' : '') + esc(k.text) + '</td>' + ['Y', 'N', 'U'].map(function (x) {
+        return '<td><input type="radio" aria-label="' + esc(k.text) + ' ' + { Y: '做到', N: '沒做到', U: '未評估' }[x] + '" name="' + nm(k.id) + '" value="' + x + '" data-k="ck" data-id="' + esc(k.id) + '"' + (v === x ? ' checked' : '') + '></td>';
+      }).join('') + '</tr>';
+    };
+    box.innerHTML = staffOnly.map(function (c) {
+      return '<div class="msg info">' + esc(drug(c).brand) + '：由醫事人員操作，不建立病人裝置評估。</div>';
+    }).join('') + items.map(function (c) {
+      var d = drug(c), dv = S.boot.devices[d.device], st = f._dev[c], at = devAttr(c);
       var nm = function (x) { return 'dv_' + c.replace(/[^A-Za-z0-9]/g, '_') + '_' + x; };
+      var its = applicable(dv, c, st.ctx), core = its.filter(function (k) { return k.layer !== 'L3'; }), l3 = its.filter(function (k) { return k.layer === 'L3'; });
+      var cu = ctxUsed(dv);
+      var note = at.status === '核准' && at.params ? '<div class="msg info">品項規定：' + esc(at.params) + '</div>' :
+        at.status === '待實物' ? '<div class="msg warn">型號待藥師看實物確認，本次只評通用題目。</div>' :
+        '<div class="note">品項數值（秒數、次數、效期）依藥袋或仿單判定。</div>';
       return '<div class="dev" data-dev="' + esc(c) + '"><div class="devh"><b>' + esc(d.brand) + '</b>　' + esc(dv.name) +
         (dv.draft ? ' <span class="tag">檢核表草稿・未簽核</span>' : '') +
         '<label class="toggle inline"><input type="checkbox" data-k="on"' + (st.on ? ' checked' : '') + '>本次評估</label>' +
         '<span class="verdict" data-v></span></div>' +
-        '<div class="devb' + (st.on ? '' : ' hidden') + '">' +
+        '<div class="devb' + (st.on ? '' : ' hidden') + '">' + note +
+        (cu.length ? '<label class="f">本次情境（有才勾）</label><div class="chips">' + cu.map(function (x) { return chip(nm('ctx'), x[0], x[1], st.ctx.indexOf(x[0]) >= 0, 'checkbox', ' data-k="ctx"'); }).join('') + '</div>' : '') +
         '<div class="chips">' + codes('指導性質').map(function (k) { return chip(nm('kind'), k.code, k.text, st.kind === k.code, 'radio', ' data-k="kind"'); }).join('') + '</div>' +
         '<div class="chips">' + codes('指導方式').map(function (k) { return chip(nm('m'), k.code, k.text, st.methods.indexOf(k.code) >= 0, 'checkbox', ' data-k="methods"'); }).join('') + '</div>' +
         '<table class="ck"><thead><tr><th>觀察項目</th><th>做到</th><th>沒做到</th><th>未評估</th></tr></thead><tbody>' +
-        dv.checklist.map(function (k) {
-          var v = st.results[k.id] || 'U';
-          return '<tr><td>' + (k.critical ? '<b class="crit">關鍵</b> ' : '') + esc(k.text) + '</td>' + ['Y', 'N', 'U'].map(function (x) {
-            return '<td><input type="radio" aria-label="' + esc(k.text) + ' ' + { Y: '做到', N: '沒做到', U: '未評估' }[x] + '" name="' + nm(k.id) + '" value="' + x + '" data-k="ck" data-id="' + esc(k.id) + '"' + (v === x ? ' checked' : '') + '></td>';
-          }).join('') + '</tr>';
-        }).join('') + '</tbody></table>' +
-        '<div class="actions-bar left"><button type="button" class="btn small ghost" data-allY>全部做到</button></div>' +
+        core.map(function (k) { return row(k, st.results[k.id] || 'U', nm); }).join('') + '</tbody></table>' +
+        (l3.length ? '<table class="ck"><thead><tr><th>安全與回教（請病人說一次）</th><th>做到</th><th>沒做到</th><th>未評估</th></tr></thead><tbody>' +
+          l3.map(function (k) { return row(k, st.results[k.id] || 'U', nm); }).join('') + '</tbody></table>' : '') +
+        '<div class="actions-bar left"><button type="button" class="btn small ghost" data-allY>操作題全部做到</button></div>' +
         (dv.errors.length ? '<details class="sub"><summary>觀察到的常見錯誤</summary><div class="chips">' + dv.errors.map(function (e) {
           return chip(nm('e'), e.code, e.text, st.errors.indexOf(e.code) >= 0, 'checkbox', ' data-k="errors"');
         }).join('') + '</div></details>' : '') +
@@ -809,6 +854,12 @@
       el.addEventListener('change', function (e) {
         var k = e.target.getAttribute('data-k');
         if (!k) return;
+        if (k === 'ctx') {
+          st.ctx = $$('[data-k=ctx]:checked', el).map(function (x) { return x.value; });
+          var ok = {}; applicable(S.boot.devices[drug(c).device], c, st.ctx).forEach(function (x) { ok[x.id] = 1; });
+          Object.keys(st.results).forEach(function (id) { if (!ok[id]) delete st.results[id]; });
+          S.dirty = true; renderDevices(f); updateRequired(f); return;
+        }
         if (k === 'on') { st.on = e.target.checked; $('.devb', el).classList.toggle('hidden', !st.on); }
         if (k === 'kind') st.kind = e.target.value;
         if (k === 'methods') st.methods = $$('[data-k=methods]:checked', el).map(function (x) { return x.value; });
@@ -821,7 +872,8 @@
         updateRequired(f);
       });
       $('[data-allY]', el).addEventListener('click', function () {
-        $$('input[data-k=ck][value=Y]', el).forEach(function (x) { x.checked = true; st.results[x.getAttribute('data-id')] = 'Y'; });
+        var core = {}; applicable(S.boot.devices[drug(c).device], c, st.ctx).forEach(function (k) { if (k.layer !== 'L3') core[k.id] = 1; });
+        $$('input[data-k=ck][value=Y]', el).forEach(function (x) { var id = x.getAttribute('data-id'); if (core[id]) { x.checked = true; st.results[id] = 'Y'; } });
         S.dirty = true;
         showVerdict(f, c, el);
         updateRequired(f);
@@ -829,22 +881,25 @@
       showVerdict(f, c, el);
     });
   }
-  function calcVerdict(dv, st) {
+  function calcVerdict(dv, st, c) {
+    var its = applicable(dv, c, st.ctx || []);
+    var core = its.filter(function (k) { return k.layer !== 'L3'; }), l3 = its.filter(function (k) { return k.layer === 'L3'; });
     var anyN = false, critN = false, allU = true, critAllY = true;
-    dv.checklist.forEach(function (k) {
+    core.forEach(function (k) {
       var v = st.results[k.id] || 'U';
       if (v !== 'U') allU = false;
       if (v === 'N') { anyN = true; if (k.critical) critN = true; }
       if (k.critical && v !== 'Y') critAllY = false;
     });
     var v = allU ? 'NA' : critN ? 'FAIL' : (!anyN && critAllY ? 'PASS' : 'PARTIAL');
+    if (v === 'PASS' && l3.some(function (k) { return k.critical && st.results[k.id] === 'N'; })) v = 'PARTIAL';
     var rank = { PASS: 3, PARTIAL: 2, FAIL: 1 };
     if (st.verdict && rank[st.verdict] && rank[v] && rank[st.verdict] < rank[v]) v = st.verdict;
     return v;
   }
   function showVerdict(f, c, el) {
     var st = f._dev[c], dv = S.boot.devices[drug(c).device];
-    var v = calcVerdict(dv, st);
+    var v = calcVerdict(dv, st, c);
     var badge = $('[data-v]', el);
     badge.className = 'verdict tag ' + (VERDICT_TAG[v] || '');
     badge.textContent = st.on ? VERDICT_TEXT[v] : '不評估';
@@ -1080,7 +1135,7 @@
       drugs: f._drugs.slice(),
       devices: activeDevices(f).map(function (c) {
         var st = f._dev[c];
-        return { drug: c, kind: st.kind, methods: st.methods, results: st.results, errors: st.errors, aid: st.aid, operator: st.operator, verdict: st.verdict };
+        return { drug: c, kind: st.kind, methods: st.methods, results: st.results, errors: st.errors, aid: st.aid, operator: st.operator, verdict: st.verdict, ctx: st.ctx || [] };
       }),
       behaviors: vals(f, 'behaviors'), intervention: radio(f, 'intervention'),
       entry: f.getAttribute('data-entry') || '面向',
