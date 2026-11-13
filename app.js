@@ -425,7 +425,14 @@
       '<button type="button" class="btn small ghost" id="lastBtn" title="查詢此病人過去的指導結果（留存稽核）">上次指導</button></div><div id="lastNote"></div></div>' +
       '<div data-field="source"><label class="f">病人來源 <span class="req">*</span> <span class="auto hidden" id="srcAuto">沿用上次</span></label><select name="source"><option value="">請選擇</option>' + opt('病人來源') + '</select></div></div>' +
       (b.settings.branches.length ? '<label class="f">分院</label><select name="branch"><option value="">（本院）</option>' +
-        b.settings.branches.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('') + '</select>' : '') + '</div>' +
+        b.settings.branches.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('') + '</select>' : '') +
+      // v3.0 F-6／F-7：年齡（只存歲數）；≥65 歲才問長期用藥品項數；同病人待辦追蹤（回診順問）
+      '<div class="row two"><div data-field="age"><label class="f">年齡 <span class="req">*</span> <span class="auto hidden" id="ageAuto"></span></label><input type="number" name="age" min="0" max="120" inputmode="numeric" class="kv">' +
+        '<div class="hint">只存歲數，不存生日；≥65 歲自動納入高齡照護，不需勾選。</div></div>' +
+      '<div data-field="poly" id="polyBox" class="hidden"><label class="f">長期用藥品項數 <span class="req">*</span></label><div class="chips">' +
+        codes('用藥品項數').map(function (c) { return chip('poly', c.code, c.text, false, 'radio'); }).join('') + '</div>' +
+        '<div class="hint">以雲端藥歷或藥袋所見為準，含外院處方；不含短期用藥（如 7 天內抗生素、止痛藥）。</div></div></div>' +
+      '<div id="visitBox"></div></div>' +
 
       '<div class="card" data-sec="2"><h2>本次指導的藥品</h2>' +
       '<input type="search" name="dq" placeholder="輸入藥名、成分、處置代碼或簡碼（至少 2 字）" autocomplete="off" spellcheck="false">' +
@@ -453,28 +460,37 @@
       '<div id="ivBox" class="hidden" data-field="intervention"><label class="f">介入結果 <span class="req">*</span></label><div class="chips">' +
       codes('介入結果').map(function (c) { return chip('intervention', c.code, c.text, false, 'radio'); }).join('') + '</div></div></div>' +
 
-      '<div class="card" data-sec="3"><h2>結果與後續</h2>' +
-      // v2.7：首次教回＋補強後最終（首次即完全或無法應答時不再問）
-      '<div data-field="teachback"><label class="f">第一次教回（teach-back） <span class="req" id="tbReq">*</span><span class="note" id="tbHint"></span></label><div class="chips">' +
-      codes('教回結果').map(function (c) { return chip('firstTb', c.code, c.text, false, 'radio'); }).join('') + '</div>' +
-      '<div id="tbAfter" class="hidden sub-q"><label class="f">重新說明後的結果 <span class="req">*</span><span class="note">（首次未完全時，補強後再請病人說一次）</span></label><div class="chips">' +
-      codes('教回結果').filter(function (c) { return c.code !== 'NA'; }).map(function (c) { return chip('teachback', c.code, c.text, false, 'radio'); }).join('') + '</div></div></div>' +
+      '<div class="card" data-sec="3"><h2>結果與後續</h2><div id="packHint"></div>' +
+      // v3.0 F-1／F-2：藥師本次完成（三態）
+      '<div data-field="tasks" id="taskWrap" class="hidden"><label class="f">藥師本次完成</label><div class="hint">這次實際做完才點「已完成」；病人沒有用該類藥、或該項與病人無關點「不適用」；時間不夠沒做保持「本次未做」。不適用不計入該項完成率的分母。</div><div class="outs" id="tasks"></div></div>' +
+      // v3.0 F-3：逐項教回（無教回要點之面向沿用整筆等級）
+      '<div data-field="teachback"><label class="f">教回（請病人用自己的話說一次） <span class="req" id="tbReq">*</span><span class="note" id="tbHint"></span></label>' +
+        '<div class="hint">以補強前、病人第一次的回答為準：不經提示說出＝答對；經提示或漏一部分＝提示後答對；說錯或說不出＝未答對。病人無法溝通但照顧者在場，由照顧者回答並勾「照顧者在場」。</div>' +
+        '<div class="outs" id="tbItems"></div>' +
+        '<div id="tbWhole" class="hidden"><div class="chips">' + codes('教回結果').filter(function (c) { return c.code !== 'NA'; }).map(function (c) { return chip('firstTb', c.code, c.text, false, 'radio'); }).join('') + '</div></div>' +
+        '<div class="toggle"><input type="checkbox" name="tbNA" id="tbNA"><label for="tbNA">病人與照顧者皆無法應答（意識、語言、年齡）</label></div>' +
+        '<div id="tbAfter" class="hidden sub-q"><label class="f">重新說明後的結果 <span class="req">*</span><span class="note">（首次未全部答對時，補強後再請病人說一次）</span></label><div class="chips">' +
+        codes('教回結果').filter(function (c) { return c.code !== 'NA'; }).map(function (c) { return chip('teachback', c.code, c.text, false, 'radio'); }).join('') + '</div></div></div>' +
       '<div id="tbPrompts"></div>' +
-      '<div data-field="actions"><label class="f">病人行動計畫 <span class="req">*</span>（至少一項）</label><div id="actions"><span class="note">請先選擇主要照護面向</span></div></div>' +
-      '<div class="toggle"><input type="checkbox" name="caregiver" id="cg"><label for="cg">照顧者在場</label></div>' +
-      '<div data-field="coverage" id="covWrap"><label class="f">本次涵蓋 <span class="note">（依題目與行動計畫預先勾選，可修改）</span></label><div class="chips" id="covBox"></div></div>' +
+      '<div data-field="actions"><label class="f">病人回家要做 <span class="req">*</span></label><div class="hint">只選這次有談到、病人也同意去做的，建議不超過 3 項。病人拒絕，或只是單一問題諮詢，選「本次不設定」。</div><div id="actions"><span class="note">請先選擇主要照護面向</span></div></div>' +
+      '<div class="toggle"><input type="checkbox" name="caregiver" id="cg"><label for="cg">照顧者在場</label></div><div class="hint">照顧者全程在場且一起接受指導才勾；只是陪同、未參與不勾。</div>' +
+      '<div data-field="coverage" id="covWrap"><label class="f">本次另外提供</label><div class="chips" id="covBox"></div><div class="hint">「實際用藥評估」由系統依藥師作業自動計入，不需勾選。</div></div>' +
       (b.user && (supVisible() || isLearner()) ? '<div data-field="supervision"><label class="f">督導方式' + (isUgy() ? ' <span class="req">*</span>' : '') + ' <span class="note">（學員紀錄；預設沿用上次）</span></label><div class="chips">' +
         codes('督導方式').filter(function (c) { return !isUgy() || c.code !== 'IND'; }).map(function (c) { return chip('supervision', c.code, c.text, c.code === (S.lastSup && (!isUgy() || S.lastSup !== 'IND') ? S.lastSup : (isUgy() ? 'PRES' : 'IND')), 'radio'); }).join('') + '</div></div>' +
         (isLearner() ? '<div data-field="supervisor"><label class="f">督導教師' + (isUgy() ? ' <span class="req">*</span>' : '') + '</label><select name="supervisor"><option value="">' + (isUgy() ? '請選擇' : '（獨立執行可不填）') + '</option>' +
           (b.supervisors || []).map(function (x) { return '<option value="' + esc(x.pid) + '"' + (x.pid === S.lastSupT ? ' selected' : '') + '>' + esc(x.name) + (x.teacher ? '（臨床教師）' : '') + '</option>'; }).join('') + '</select></div>' : '') : '') +
-      '<div class="toggle"><input type="checkbox" name="needFu" id="nf"><label for="nf">需要追蹤</label> <span class="auto hidden" id="fuAuto">自動：因發現不當用藥行為建立追蹤，可取消</span></div>' +
+      // v3.0 F-4：追蹤預設回診順問
+      '<div data-field="fu"><label class="f">追蹤 <span class="auto hidden" id="fuAuto">因發現不當用藥行為，已改為需追蹤</span></label><div class="chips" id="fuModes">' +
+        chip('fuMode', 'VISIT', '回診順問', false, 'radio') + chip('fuMode', 'TEL', '電話追蹤', false, 'radio') + chip('fuMode', 'NONE', '本次不追蹤', false, 'radio') + '</div>' +
+        '<div class="hint">有設定「病人回家要做」或發現用藥問題，就保留「回診順問」：同一病人下次回診建立紀錄時，系統會先跳出這幾題請您順便問。病人不會回本院才改電話或選理由。</div>' +
+        '<input type="checkbox" name="needFu" id="nf" class="hidden" tabindex="-1" aria-hidden="true"></div>' +
       '<div class="row two" id="fuBox" style="display:none"><div><label class="f">幾天後追蹤</label><input type="number" name="fuDays" min="1" max="365" value="14"></div>' +
       '<div><label class="f">追蹤職類</label><select name="fuRole">' + roleOpts + '</select></div></div>' +
+      '<div id="noFuBox" class="hidden" data-field="noFuReason"><label class="f">本次不追蹤的理由 <span class="req" id="noFuReq">*</span></label><select name="noFuReason"><option value="">請選擇</option>' + opt('未追蹤理由') + '</select></div>' +
       '<div class="note hidden" id="nextCheck"></div>' +
-      '<div class="toggle"><input type="checkbox" name="needRef" id="nr"><label for="nr">建立轉介待辦</label></div>' +
+      '<div class="toggle"><input type="checkbox" name="needRef" id="nr"><label for="nr">建立轉介待辦</label></div><div class="hint">問題需要其他職類或醫師處理才建；已當場口頭告知醫師並處理完，不建轉介，記在「介入結果」。</div>' +
       '<div id="refBox" style="display:none" data-field="refRoles"><label class="f">轉介給（可多選）</label><div class="chips">' +
       codes('職類').map(function (c) { return chip('refRoles', c.code, c.text); }).join('') + '</div></div></div>' +
-
       '<details class="card opt" id="optWhole"><summary><h2>全人評估</h2><span class="opt-tag">選填</span><span class="opt-done hidden" id="wholeDone"></span>' +
         '<div class="opt-hint">多為勾選；勾選的問題計入問題發現率，跨職類需求會自動帶入轉介對象</div></summary><label class="f">發現問題（可複選）</label>' +
       Object.keys(issueGroups).map(function (g) {
@@ -535,6 +551,8 @@
     $('#lastBtn', f).addEventListener('click', function () { lookupLast(f); });
     $('#cardFill', f).addEventListener('click', function () { fillFromCards(f); });
     f.needFu.addEventListener('change', function () { $('#fuBox', f).style.display = f.needFu.checked ? '' : 'none'; updateNextCheck(f); });
+    f.age.addEventListener('input', function () { $('#ageAuto', f).classList.add('hidden'); syncAge(f); });
+    f.mrn.addEventListener('change', function () { visitLookup(f); });
     f.needRef.addEventListener('change', function () {
       $('#refBox', f).style.display = f.needRef.checked ? '' : 'none';
       if (f.needRef.checked) vals(f, 'needs').forEach(function (r) { setChecked(f, 'refRoles', r, true); });
@@ -565,11 +583,9 @@
     f.addEventListener('change', function (e) {
       var n = e.target.name;
       if (n === 'coverage') e.target.dataset.touched = '1';
-      if (n === 'firstTb') {
-        var fv = e.target.value, need = fv === 'PART' || fv === 'NONE';
-        $('#tbAfter', f).classList.toggle('hidden', !need);
-        $$('input[name=teachback]', f).forEach(function (x) { x.checked = false; syncChip(x); });
-      }
+      if (n === 'firstTb' || n === 'tbNA' || /^tb_/.test(n || '')) syncTb(f, true);
+      if (n === 'fuMode') setFuMode(f, e.target.value, true);
+      if (/^task_/.test(n || '')) { e.target.closest('.orow') && e.target.closest('.orow').classList.remove('autoset'); autoCoverage(f); }
       if (n === 'actions' || n === 'issues' || n === 'caregiver' || n === 'source') autoCoverage(f);
       if (n && /^s\d+$/.test(n)) paintScale(n);
       if (n === 'issues' || n === 'needs' || /^s\d+$/.test(n || '')) paintOpt();
@@ -578,9 +594,8 @@
       if (n === 'behaviors') {
         var any = vals(f, 'behaviors').length > 0;
         $('#ivBox', f).classList.toggle('hidden', !any);
-        if (any && !f.needFu.checked) { f.needFu.checked = true; $('#fuBox', f).style.display = ''; $('#fuAuto', f).classList.remove('hidden'); updateNextCheck(f); }
+        if (any && !f.needFu.checked) { setFuMode(f, 'VISIT'); $('#fuAuto', f).classList.remove('hidden'); }
       }
-      if (n === 'needFu') $('#fuAuto', f).classList.add('hidden');
       if (n === 'actions' && e.target.value === 'NOACT' && e.target.checked) {
         $$('input[name="actions"]', f).forEach(function (x) { if (x.value !== 'NOACT' && x.checked) { x.checked = false; syncChip(x); } });
       } else if (n === 'actions' && e.target.checked) setChecked(f, 'actions', 'NOACT', false);
@@ -634,6 +649,8 @@
     if (pre.pack && packLive(pre.pack)) { f.pack.value = pre.pack; onPackChange(f); }
     (pre.drugs || []).forEach(function (c) { addDrug(f, c); });
     if (pre.drugs && pre.drugs.length && pre.mrn) lookupLast(f, true);
+    if (pre.mrn) visitLookup(f);
+    if (!f.pack.value) setFuMode(f, 'NONE');
     updateRequired(f);
     updateProgress(f);
     setTimeout(function () { (pre.mrn ? f.source : f.mrn).focus(); }, 0);
@@ -643,7 +660,8 @@
   function updateProgress(f) {
     var r = collect(f, { data: function () { return ''; } });
     var miss = localCheck(r);
-    var stepOf = { mrn: 1, source: 1, pack: 2, response: 2, devices: 2, teachback: 3, actions: 3, intervention: 3, refRoles: 3 };
+    syncAutoTasks(f);
+    var stepOf = { mrn: 1, source: 1, age: 1, poly: 1, visit: 1, pack: 2, response: 2, devices: 2, teachback: 3, actions: 3, intervention: 3, refRoles: 3, noFuReason: 3 };
     var bad = { 1: 0, 2: 0, 3: 0 };
     miss.forEach(function (m) { bad[stepOf[m.field] || 3]++; });
     $$('#prog [data-step]', f).forEach(function (el) {
@@ -959,11 +977,124 @@
   /* --- 面向與題目 --- */
   function isLearner() { var l = (S.boot.user || {}).learner; return l === 'PGY' || l === 'UGY'; }
   function isUgy() { return (S.boot.user || {}).learner === 'UGY'; }
+  /* ---------- v3.0 表單輔助：藥師作業三態、逐項教回、追蹤方式、年齡、回診順問 ---------- */
+  var DIS_SET = { CAD: 1, AMI: 1, HF: 1, STROKE: 1, TBI: 1, DEMENTIA: 1, ASTHMA: 1, COPD: 1, AKD: 1, CKD: 1, DM: 1, HNC: 1, LUNGCA: 1, BREASTCA: 1, CRC: 1, TJR: 1, DDH: 1, NRDS: 1, PAIN: 1, INFECT: 1 };
+  var AUTO_TASK = { ASTHMA: ['ASTHMA-A11', ['DEV-MDI', 'DEV-DPI', 'DEV-SMI']], COPD: ['COPD-A11', ['DEV-MDI', 'DEV-DPI', 'DEV-SMI']], DM: ['DM-A12', ['DEV-PEN']] };
+  var PACK_NOTE = {
+    CAD: '未使用降血脂藥時，「LDL-C 目標」那一項選不適用。回診順問會問：有沒有自行停藥與原因、LDL-C 複檢。',
+    AMI: '不在雙重抗血小板療程中，「療程期間說明」選不適用。回診順問會問：有沒有自行中斷、是否因出血擔憂停藥、有無因心臟問題就醫。',
+    HF: '回診順問會問：近 7 天量體重幾天、有無因心衰竭急診或住院、調藥後是否已抽血。',
+    STROKE: '非管灌、沒有吞嚥困難者，「劑型確認」選不適用。回診順問會問：能否說出出血警訊、有無自行中斷、有無需就醫的出血。',
+    TBI: '未使用抗癲癇藥者，停藥計畫選不適用；由照顧者回答教回時勾「照顧者在場」。',
+    DEMENTIA: '未使用抗精神病藥、安眠藥或抗膽鹼藥者，藥物審查選不適用；教回多由照顧者回答。',
+    ASTHMA: '有做吸入器技巧評估時，「技巧實測」自動標為已完成。回診順問會問：吸入器複評、近 4 週症狀、緩解型用量。',
+    COPD: '不吸菸者，戒菸評估選不適用；有做吸入器技巧評估時「技巧實測」自動完成。',
+    AKD: '回診順問會問：有無自行使用止痛藥或中草藥、是否已回診抽血。',
+    CKD: '回診順問會問：有無使用來路不明藥品、腎保護藥有無中斷。',
+    DM: '未使用注射劑者，注射技巧選不適用；未使用 SGLT2 抑制劑者，生病暫停規則選不適用。有做筆針技巧評估時「注射技巧實測」自動完成。',
+    HNC: '體重穩定、進食正常者，營養轉介選不適用；未使用鴉片類止痛藥者，相關衛教選不適用。',
+    LUNGCA: '未使用口服標靶藥或未接受免疫治療者，對應項目選不適用。',
+    BREASTCA: '未接受荷爾蒙治療者，長期服用衛教選不適用。',
+    CRC: '未使用 Capecitabine 者，週期衛教選不適用；沒有造口者，病人行動不要選造口照護。',
+    TJR: '未使用鴉片類止痛藥者，減量計畫選不適用。',
+    DDH: '跨職類照護：藥師非主責，本面向指標不列入藥師績效。',
+    NRDS: '不符 RSV 預防資格者，排程說明選不適用；教回由家長回答並勾「照顧者在場」。',
+    PAIN: '未使用鴉片類止痛藥者，安全五要素選不適用。首次與追蹤時在「全人評估＞關鍵數值」各填一次疼痛分數（0–10）。',
+    INFECT: '範圍：門診口服抗微生物藥品與出院帶藥（不含門診靜脈抗生素）。本面向內容為草案，待感染科藥師簽核。'
+  };
+  function isPharmTask(code) { return /-A(1[1-9]|2\d)$/.test(code || ''); }
+  function isDisPack(code) { return !!DIS_SET[code]; }
+  function needNoFuReason(code) { return !!DIS_SET[code] && code !== 'DDH'; }
+  function tbCodes(f) { return codes('教回要點').filter(function (c) { return c.pack === f.pack.value; }); }
+  function tbFirst(f) {
+    if (f.tbNA.checked) return 'NA';
+    var tbs = tbCodes(f);
+    if (!tbs.length) return radio(f, 'firstTb');
+    var vs = tbs.map(function (c) { return radio(f, 'tb_' + c.code); });
+    if (vs.some(function (v) { return !v; })) return '';
+    return vs.every(function (v) { return v === 'Y'; }) ? 'FULL' : vs.every(function (v) { return v === 'N'; }) ? 'NONE' : 'PART';
+  }
+  function syncTb(f, changed) {
+    var na = f.tbNA.checked, first = tbFirst(f), need = first === 'PART' || first === 'NONE';
+    $('#tbItems', f).classList.toggle('dim', na); $('#tbWhole', f).classList.toggle('dim', na);
+    var was = !$('#tbAfter', f).classList.contains('hidden');
+    $('#tbAfter', f).classList.toggle('hidden', !need);
+    if (!need || (changed && !was)) $$('input[name=teachback]', f).forEach(function (x) { if (x.checked) { x.checked = false; syncChip(x); } });
+  }
+  function setFuMode(f, mode, user) {
+    if (user) f._fuTouched = true;
+    var x = $('input[name=fuMode][value="' + mode + '"]', f); if (x && !x.checked) { x.checked = true; syncChip(x); }
+    f.needFu.checked = mode !== 'NONE';
+    $('#fuBox', f).style.display = mode === 'NONE' ? 'none' : '';
+    $('#noFuBox', f).classList.toggle('hidden', mode !== 'NONE');
+    $('#fuAuto', f).classList.add('hidden');
+    updateNextCheck(f);
+  }
+  function syncAge(f) {
+    var a = parseInt(f.age.value, 10), old = a >= 65;
+    $('#polyBox', f).classList.toggle('hidden', !old);
+    if (!old) $$('input[name=poly]', f).forEach(function (x) { if (x.checked) { x.checked = false; syncChip(x); } });
+  }
+  function syncAutoTasks(f) {
+    var a = AUTO_TASK[f.pack.value]; if (!a) return;
+    var has = activeDevices(f).some(function (c) { return a[1].indexOf(drug(c).device) >= 0; });
+    var x = $('input[name="task_' + a[0] + '"][value="Y"]', f); if (!x) return;
+    if (has && !x.checked) { x.checked = true; syncChip(x); x.closest('.orow').classList.add('autoset'); }
+  }
+  function visitLookup(f) {
+    var mrn = f.mrn.value.trim(); f._visit = null; $('#visitBox', f).innerHTML = '';
+    if (!MRN_RE.test(mrn)) return;
+    var g = f._vgen = (f._vgen || 0) + 1;
+    api('visit', { mrn: mrn }).then(function (v) {
+      if (g !== f._vgen || f.mrn.value.trim() !== mrn) return;
+      f._visit = v;
+      if (v.lastAge && f.age.value === '') {
+        var yrs = Math.floor((Date.parse(today()) - Date.parse(v.lastAge.date)) / (365.25 * 864e5));
+        if (yrs >= 0 && yrs <= 5) {
+          f.age.value = v.lastAge.age + yrs; syncAge(f);
+          $('#ageAuto', f).textContent = '依 ' + v.lastAge.date + ' 紀錄帶入，請確認'; $('#ageAuto', f).classList.remove('hidden');
+          if (v.lastAge.poly && +f.age.value >= 65) setChecked(f, 'poly', v.lastAge.poly, true);
+        }
+      }
+      renderVisit(f, v.pending || []);
+      updateProgress(f);
+    }).catch(function () { /* 查詢失敗不影響填寫；追蹤仍可於待辦完成 */ });
+  }
+  function renderVisit(f, list) {
+    var box = $('#visitBox', f);
+    if (!list.length) { box.innerHTML = ''; return; }
+    var resOpts = codes('追蹤結果').map(function (c) { return '<option value="' + esc(c.code) + '">' + esc(c.text) + '</option>'; }).join('');
+    box.innerHTML = '<div class="visit" data-field="visit"><h3>回診順問：此病人有 ' + list.length + ' 項追蹤尚未完成</h3><div class="hint">順便問完、選「追蹤結果」，送出時會一併完成；這次不問就保持「這次不問」。</div>' +
+      list.map(function (v) {
+        return '<details class="task" open><summary><b>' + esc(v.packName) + '</b>　' + (v.created ? '上次 ' + esc(v.created) + '　' : '') + '到期 ' + esc(v.due) +
+          ' <span class="tag">' + (v.mode === 'VISIT' ? '回診順問' : '電話追蹤') + '</span></summary>' +
+          (v.actions.length ? '<div class="note">上次病人回家要做：' + esc(v.actions.join('、')) + '</div>' : '') +
+          (v.outcomes.length ? '<div class="outs">' + v.outcomes.map(function (o) {
+            var n = 'vo_' + v.id + '_' + o.code;
+            return '<div class="orow' + (o.reverse ? ' rev' : '') + '" role="radiogroup" aria-label="' + esc(o.text) + '"><span class="otext">' + esc(o.text) + (o.reverse ? ' <span class="tag bad">不良事件</span>' : '') +
+              '</span><span class="seg3">' + chip(n, 'Y', '是', false, 'radio') + chip(n, 'N', '否', false, 'radio') + chip(n, '', '未問', true, 'radio') + '</span></div>';
+          }).join('') + '</div>' : '') +
+          (v.hasBehaviors ? '<label class="f">上次發現的不當用藥行為是否仍持續？</label><div class="chips">' + chip('vp_' + v.id, 'N', '已改善', false, 'radio') + chip('vp_' + v.id, 'Y', '仍持續', false, 'radio') + '</div>' : '') +
+          (v.kv ? '<label class="f">' + esc(v.kv.label) + '（' + v.kv.min + '–' + v.kv.max + ' ' + esc(v.kv.unit) + '，選填）</label><input type="number" class="kv" name="vk_' + esc(v.id) + '" min="' + v.kv.min + '" max="' + v.kv.max + '" step="' + v.kv.step + '">' : '') +
+          '<label class="f">追蹤結果</label><select name="vr_' + esc(v.id) + '"><option value="">這次不問</option>' + resOpts + '</select></details>';
+      }).join('') + '</div>';
+  }
+  function collectFuDone(f) {
+    var out = [];
+    ((f._visit && f._visit.pending) || []).forEach(function (v) {
+      var sel = f.querySelector('[name="vr_' + v.id + '"]'), res = sel ? sel.value : '';
+      var yn = {}; v.outcomes.forEach(function (o) { var x = radio(f, 'vo_' + v.id + '_' + o.code); if (x) yn[o.code] = x; });
+      var kvEl = f.querySelector('[name="vk_' + v.id + '"]'), persist = radio(f, 'vp_' + v.id) || '';
+      if (res || Object.keys(yn).length || persist || (kvEl && kvEl.value)) out.push({ id: v.id, result: res, outcomesYN: yn, keyValue: kvEl ? kvEl.value.trim() : '', persist: persist, label: v.packName });
+    });
+    return out;
+  }
+
   /** v2.7 本次涵蓋：依面向列出（共通＋本面向專屬），保留已勾選 */
   function renderCoverage(f) {
     var box = $('#covBox', f); if (!box) return;
     var keep = vals(f, 'coverage'), pk = f.pack.value;
-    var list = codes('本次涵蓋').filter(function (c) { return c.pack === 'ALL' || c.pack === pk; });
+    var list = codes('本次涵蓋').filter(function (c) { return (c.pack === 'ALL' || c.pack === pk) && c.code !== 'MEDREV' && (c.code !== 'DCREC' || f.source.value === 'DC'); });
     box.innerHTML = list.map(function (c) { return chip('coverage', c.code, c.text, keep.indexOf(c.code) >= 0); }).join('');
     $('#covWrap', f).classList.toggle('hidden', !list.length);
   }
@@ -973,11 +1104,9 @@
       var x = $('input[name=coverage][value="' + code + '"]', f); if (!x || x.dataset.touched) return;
       if (x.checked !== on) { x.checked = on; syncChip(x); }
     };
-    var acts = vals(f, 'actions');
-    var ddi = codes('行動計畫').some(function (c) { return acts.indexOf(c.code) >= 0 && /(^|;)U-DDI/.test(c.group || ''); });
-    set('MEDREV', ddi);
+    if (f.source.value === 'DC' && !$('input[name=coverage][value="DCREC"]', f)) renderCoverage(f);
+    if (f.source.value !== 'DC' && $('input[name=coverage][value="DCREC"]', f)) renderCoverage(f);
     set('DCREC', f.source.value === 'DC');
-    set('NEED', vals(f, 'issues').length > 0 || f.caregiver.checked);
   }
   function supVisible() { var lv = { L1: 1, L2: 2, L3: 3, L4: 4 }[S.boot.user.level] || 1; return lv <= (S.boot.settings.supLevel || 1); }
   function updateNextCheck(f) {
@@ -998,13 +1127,29 @@
     $('#packs2', f).innerHTML = S.boot.allPacks.filter(function (x) { return x.code !== code; })
       .map(function (x) { return chip('packs2', x.code, x.name, keep.indexOf(x.code) >= 0); }).join('');
     var keepA = vals(f, 'actions');
-    var acts = codes('行動計畫').filter(function (c) { return c.pack === code || c.pack === 'ALL'; });
-    // v2.6：帶通用標籤者（不自行停藥、警訊、自我監測、交互作用…）排第一列，固定位置；其餘為本面向專屬
-    var isU = function (c) { return /(^|;)U-/.test(c.group || ''); };
-    var row = function (list) { return list.map(function (c) { return chip('actions', c.code, c.text, keepA.indexOf(c.code) >= 0); }).join(''); };
-    var uA = acts.filter(function (c) { return isU(c) && c.code !== 'NOACT'; }), oA = acts.filter(function (c) { return !isU(c); });
-    $('#actions', f).innerHTML = acts.length ? (uA.length ? '<div class="group-label">核心（跨面向共同指標）</div><div class="chips">' + row(uA) + '</div><div class="group-label">本面向</div>' : '') +
-      '<div class="chips">' + row(oA) + '</div>' : '<span class="note">無選項</span>';
+    // v3.0 F-1：病人回家要做（A01–A06、不設定）與藥師本次完成（A11 起，三態）分開
+    var acts = codes('行動計畫').filter(function (c) { return (c.pack === code || c.pack === 'ALL') && !isPharmTask(c.code); });
+    $('#actions', f).innerHTML = acts.length ? '<div class="chips">' + acts.map(function (c) { return chip('actions', c.code, c.code === 'NOACT' ? '本次不設定' : c.text, keepA.indexOf(c.code) >= 0); }).join('') + '</div>' : '<span class="note">無選項</span>';
+    var keepT = {}; $$('#tasks input[type=radio]:checked', f).forEach(function (x) { keepT[x.name] = x.value; });
+    var tasks = codes('行動計畫').filter(function (c) { return c.pack === code && isPharmTask(c.code); });
+    $('#taskWrap', f).classList.toggle('hidden', !tasks.length);
+    $('#tasks', f).innerHTML = tasks.map(function (c) {
+      var n = 'task_' + c.code, v = keepT[n] || '';
+      return '<div class="orow" role="radiogroup" aria-label="' + esc(c.text) + '"><span class="otext">' + esc(c.text) + '</span><span class="seg3">' +
+        chip(n, 'Y', '已完成', v === 'Y', 'radio') + chip(n, 'NA', '不適用', v === 'NA', 'radio') + chip(n, '', '本次未做', v === '', 'radio') + '</span></div>';
+    }).join('');
+    // v3.0 F-3：逐項教回
+    var keepTb = {}; $$('#tbItems input[type=radio]:checked', f).forEach(function (x) { keepTb[x.name] = x.value; });
+    var tbs = codes('教回要點').filter(function (c) { return c.pack === code; });
+    $('#tbItems', f).innerHTML = tbs.map(function (c) {
+      var n = 'tb_' + c.code, v = keepTb[n] || '';
+      return '<div class="orow" role="radiogroup" aria-label="' + esc(c.text) + '"><span class="otext">' + esc(c.text) + '</span><span class="seg3">' +
+        chip(n, 'Y', '答對', v === 'Y', 'radio') + chip(n, 'P', '提示後答對', v === 'P', 'radio') + chip(n, 'N', '未答對', v === 'N', 'radio') + '</span></div>';
+    }).join('');
+    $('#tbWhole', f).classList.toggle('hidden', !!tbs.length || !code);
+    $('#packHint', f).innerHTML = code && PACK_NOTE[code] ? '<div class="msg info packnote"><b>' + esc(packName(code)) + '：</b>' + esc(PACK_NOTE[code]) + '</div>' : '';
+    syncTb(f); syncAutoTasks(f);
+    if (!f._fuTouched) setFuMode(f, isDisPack(code) ? 'VISIT' : 'NONE');
     renderCoverage(f); autoCoverage(f);
     var kv = (S.boot.settings.kv || {})[code];
     $('#kvBox', f).classList.toggle('hidden', !kv);
@@ -1017,6 +1162,7 @@
       f.fuDays.value = p.fuDays || 14;
       if (p.fuRole) f.fuRole.value = p.fuRole;
     }
+    $('#noFuReq', f).classList.toggle('hidden', !needNoFuReason(code));
     updateAvoid(f);
     updateMisuseHint(f);
     if (!code) { $('#qlist', f).innerHTML = '<div class="empty">請先選擇主要照護面向</div>'; return; }
@@ -1126,8 +1272,13 @@
       mrn: f.mrn.value.trim(), source: f.source.value, branch: f.branch ? f.branch.value : '', pack: f.pack.value,
       packs2: vals(f, 'packs2'), cat: f.cat.value.indexOf('QX:') === 0 ? 'QX' : f.cat.value, qids: vals(f, 'qpick'),
       question: f.question.value.trim(), response: resp, issues: vals(f, 'issues'), needs: vals(f, 'needs'),
-      advice: f.advice.value.trim(), firstTeachback: radio(f, 'firstTb'),
-      teachback: (function () { var t1 = radio(f, 'firstTb'); return t1 === 'FULL' || t1 === 'NA' ? t1 : radio(f, 'teachback'); })(),
+      advice: f.advice.value.trim(), firstTeachback: tbFirst(f),
+      teachback: (function () { var t1 = tbFirst(f); return t1 === 'FULL' || t1 === 'NA' ? t1 : radio(f, 'teachback'); })(),
+      v30: true, age: f.age.value.trim(), poly: radio(f, 'poly') || '',
+      tbItems: (function () { var o = {}; if (f.tbNA.checked) return o; tbCodes(f).forEach(function (c) { var v = radio(f, 'tb_' + c.code); if (v) o[c.code] = v; }); return o; })(),
+      tasks: (function () { var o = {}; codes('行動計畫').filter(function (c) { return c.pack === f.pack.value && isPharmTask(c.code); }).forEach(function (c) { o[c.code] = radio(f, 'task_' + c.code) || 'N'; }); return o; })(),
+      fuMode: (function () { var m = radio(f, 'fuMode'); return m === 'VISIT' || m === 'TEL' ? m : ''; })(), fuModeUi: radio(f, 'fuMode') || '',
+      noFuReason: f.noFuReason.value, fuDone: collectFuDone(f),
       coverage: vals(f, 'coverage'), supervisor: f.supervisor ? f.supervisor.value : '',
       actions: vals(f, 'actions'), caregiver: f.caregiver.checked,
       needFu: f.needFu.checked, fuDays: f.fuDays.value, fuRole: f.fuRole.value, needRef: f.needRef.checked,
@@ -1151,15 +1302,22 @@
     var add = function (field, text) { e.push({ field: field, text: text }); };
     if (!MRN_RE.test(r.mrn)) add('mrn', '病歷號（4–20 位英數字）');
     if (!r.source) add('source', '病人來源');
+    var ag = parseInt(r.age, 10);
+    if (r.age === '') add('age', '年齡'); else if (!(ag >= 0 && ag <= 120) || String(ag) !== r.age) add('age', '年齡（0–120 的整數）');
+    if (ag >= 65 && !r.poly) add('poly', '長期用藥品項數（≥65 歲）');
+    (r.fuDone || []).forEach(function (x) { if (!x.result) add('visit', '回診順問「' + x.label + '」的追蹤結果'); });
     if (!r.pack) add('pack', '主要照護面向');
     if (!r.response && !r.drugs.length) add('response', '醫療人員回應（或選擇藥品）');
-    if (!r.firstTeachback && !r.devices.length) add('teachback', '第一次教回結果');
+    var nTb = Object.keys(r.tbItems || {}).length, needTb = codes('教回要點').filter(function (c) { return c.pack === r.pack; }).length;
+    if (r.firstTeachback !== 'NA' && nTb && nTb < needTb) add('teachback', '教回（每一項都要選）');
+    else if (!r.firstTeachback && !r.devices.length) add('teachback', needTb ? '教回（每一項都要選）' : '第一次教回結果');
     if ((r.firstTeachback === 'PART' || r.firstTeachback === 'NONE') && !r.teachback) add('teachback', '重新說明後的教回結果');
     if (isUgy() && r.supervision !== 'PRES' && r.supervision !== 'REV') add('supervision', '督導方式（教師在場或事後覆核）');
     if ((isUgy() || r.supervision === 'REV') && !r.supervisor) add('supervisor', '督導教師');
     if (!r.actions.length) add('actions', '行動計畫');
     if (r.behaviors.length && !r.intervention) add('intervention', '介入結果');
     if (r.needRef && !r.refRoles.length) add('refRoles', '轉介職類');
+    if (r.fuModeUi === 'NONE' && needNoFuReason(r.pack) && !r.noFuReason) add('noFuReason', '本次不追蹤的理由');
     r.devices.forEach(function (d) { if (!d.methods.length) add('devices', drug(d.drug).brand + ' 指導方式'); });
     return e;
   }
@@ -1286,7 +1444,7 @@
       var fuItem = function (f) {
         return '<details class="task"' + (openAll ? ' open' : '') + '><summary><b>' + esc(f.packName) + '</b>　末四碼 ' + esc(f.last4) +
           '　<span class="' + (grp(f) === 'over' ? 'overdue' : '') + '">到期 ' + esc(f.due) + (grp(f) === 'over' ? '（逾期）' : '') + '</span>' +
-          (f.mine ? ' <span class="tag ok">我建立</span>' : ' <span class="tag">' + esc(f.role) + '</span>') + (f.hasBehaviors ? ' <span class="tag bad">需確認行為</span>' : '') + '</summary>' +
+          (f.mine ? ' <span class="tag ok">我建立</span>' : ' <span class="tag">' + esc(f.role) + '</span>') + (f.mode === 'VISIT' ? ' <span class="tag">回診順問</span>' : '') + (f.hasBehaviors ? ' <span class="tag bad">需確認行為</span>' : '') + '</summary>' +
           '<form data-fu="' + esc(f.id) + '" data-beh="' + (f.hasBehaviors ? '1' : '') + '" data-label="' + esc(f.packName + ' 末四碼 ' + f.last4) + '">' + ctxHtml(f.ctx) +
           '<div class="row two"><div><label class="f">追蹤結果</label><select name="result"><option value="">請選擇</option>' + resOpts + '</select></div>' +
           '<div><label class="f">說明</label><input type="text" name="note" maxlength="1000"></div></div>' +
@@ -1743,7 +1901,7 @@
     w = w || 180; var h = 40, minN = S.boot.settings.minN || 10;
     var pts = months.map(function (m) { var r = x && x.m[m]; if (!r) return null; if (kind === 'n') return { m: m, v: r.num || 0 }; return r.den && r.den >= minN ? { m: m, v: r.num / r.den * 100 } : (r.den ? { m: m, v: r.num / r.den * 100, weak: true } : null); });
     var vs = pts.filter(Boolean).map(function (p) { return p.v; });
-    if (vs.length < 2) return '<span class="note">趨勢資料不足</span>';
+    if (vs.length < 2) return '<span class="note">逐月點不足 2 個</span>';
     var lo = kind === 'n' ? 0 : Math.max(0, Math.min.apply(null, vs) - 5), hi = kind === 'n' ? Math.max.apply(null, vs) || 1 : Math.min(100, Math.max.apply(null, vs) + 5);
     if (hi - lo < 1e-9) hi = lo + 1;
     var n = months.length, X = function (i) { return n === 1 ? w / 2 : 3 + i / (n - 1) * (w - 6); }, Y = function (v) { return h - 4 - (v - lo) / (hi - lo) * (h - 8); };
@@ -1761,10 +1919,10 @@
   function kpiCard(title, x, R, sentence, opts) {
     opts = opts || {};
     var cur = aggRange(x, R.months), prev = aggRange(x, R.prev);
-    var big = !cur ? '—' : cur.small ? '<span class="small-n">n＝' + cur.den + '</span>' : cur.rate === null ? '—' : cur.rate + '%';
-    var hint = cur && cur.small ? '<div class="note">本區間分母不足 ' + (S.boot.settings.minN || 10) + '，<button type="button" class="linkbtn" data-widen="1">放寬為全期</button></div>' : '';
+    var big = !cur || (cur.hasDen && !cur.den) || (cur.rate === null && !cur.small) ? '<span class="empty-v">' + emptyTxt(opts.code || (x && x.code)) + '</span>' : cur.small ? '<span class="small-n">樣本不足（n＝' + cur.den + '）</span>' : cur.rate + '%';
+    var hint = cur && cur.small && cur.den > 0 ? '<div class="note">本區間分母不足 ' + (S.boot.settings.minN || 10) + '，<button type="button" class="linkbtn" data-widen="1">放寬為全期</button></div>' : '';
     return '<div class="dcard kcard2' + (opts.lowGood ? ' lowgood' : '') + '"><div class="dk">' + esc(title) + (opts.tag ? ' <span class="tag">' + esc(opts.tag) + '</span>' : '') + '</div><div class="big">' + big + '</div>' +
-      '<div class="ds">' + (cur && cur.hasDen ? cur.num + '／' + cur.den + '　' : '') + esc(sentence || '') + '</div>' + hint +
+      '<div class="ds">' + (cur && cur.hasDen && cur.den ? cur.num + '／' + cur.den + '　' : '') + esc(sentence || '') + '</div>' + hint +
       '<div class="dfoot">' + (cur && !cur.small ? deltaPP(cur, prev) : '') + trendSvg(x, R.months, 'rate', R.cut) + '</div></div>';
   }
   /** 追蹤漏斗（O6）：應追蹤 → 已到期 → 完成 → 準時完成 */
@@ -1845,10 +2003,105 @@
       ks.map(function (k, i) { return '<span class="sb' + (i % 4) + '" style="flex:' + ss[k] + '"></span>'; }).join('') + '</div><ul class="srclist">' +
       ks.map(function (k, i) { return '<li><span class="sw sb' + (i % 4) + '"></span><button type="button" class="linkbtn" data-src="' + esc(k) + '">' + esc(SRC_TXT[k] || k) + '</button> <b>' + ss[k] + '</b><span class="note">（' + Math.round(ss[k] / tot * 1000) / 10 + '%）</span></li>'; }).join('') + '</ul></div>';
   }
+  /* ---------- v3.0 疾病專屬儀表板、高齡照護、空值用語 ---------- */
+  var FU_BASED = /^(C6|C7|G1|G2|G3|G5|M3|GE-7)$|-K[345]$/;
+  /** V-2：空值只有三種說法 */
+  function emptyTxt(code) { return code && FU_BASED.test(code) ? '待追蹤回填' : '尚無紀錄'; }
+  /** 每個疾病面向要回答的問題與專屬主圖（ladder＝依序之關鍵指標；device＝裝置步驟；pain＝前後分數配對） */
+  var SIG = {
+    CAD: { q: '抗血小板與降血脂藥有沒有持續服用？', type: 'ladder', steps: ['K1', 'K3', 'K4'] },
+    AMI: { q: '雙重抗血小板療程是否說清楚並完成？', type: 'ladder', steps: ['K1', 'K2', 'K3'] },
+    HF: { q: '病人會不會自我監測、生病時知不知道先暫停哪些藥？', type: 'ladder', steps: ['K1', 'K3', 'K4'] },
+    STROKE: { q: '抗血栓藥衛教是否完整、出血是否被及早辨識？', type: 'ladder', steps: ['K1', 'K2', 'K3', 'K4'] },
+    TBI: { q: '預防性抗癲癇藥有沒有停藥計畫？', type: 'ladder', steps: ['K1', 'K2', 'K4'] },
+    DEMENTIA: { q: '照顧者能不能管理用藥、精神藥物有沒有定期檢討？', type: 'ladder', steps: ['K1', 'K2', 'K3'] },
+    ASTHMA: { q: '吸入器用對了嗎？哪一個步驟最常做錯？', type: 'device' },
+    COPD: { q: '每一支吸入器都實測過嗎？哪一個步驟最常做錯？', type: 'device' },
+    AKD: { q: '腎毒性藥物有沒有盤點、生病暫停規則有沒有教會？', type: 'ladder', steps: ['K1', 'K3', 'K4'] },
+    CKD: { q: '成藥與中草藥有沒有被問出來、腎保護藥有沒有持續？', type: 'ladder', steps: ['K1', 'K3', 'K4'] },
+    DM: { q: '注射技巧對不對、低血糖有沒有減少？', type: 'device' },
+    HNC: { q: '黏膜炎與疼痛有沒有處理、營養轉介有沒有完成？', type: 'ladder', steps: ['K2', 'K3', 'K4'] },
+    LUNGCA: { q: '口服標靶藥有沒有按時吃、警訊出現有沒有聯繫？', type: 'ladder', steps: ['K1', 'K3', 'K4'] },
+    BREASTCA: { q: '荷爾蒙治療能不能持續？', type: 'ladder', steps: ['K1', 'K3', 'K4'] },
+    CRC: { q: '腹瀉會不會自我處理、Capecitabine 週期有沒有吃對？', type: 'ladder', steps: ['K2', 'K3', 'K4'] },
+    TJR: { q: '預防血栓藥有沒有吃完、鴉片類有沒有減停？', type: 'ladder', steps: ['K1', 'K3', 'K4'] },
+    DDH: { q: '照顧者會不會正確穿戴裝具？（跨職類監測）', type: 'ladder', steps: ['K2', 'K3', 'K4'] },
+    NRDS: { q: '家長給藥有沒有給對？', type: 'ladder', steps: ['K1', 'K3', 'K4'] },
+    PAIN: { q: '疼痛有沒有改善、鴉片類用得安不安全？', type: 'pain' },
+    INFECT: { q: '抗微生物藥品療程有沒有吃完、有沒有自行停藥或留藥？', type: 'ladder', steps: ['K1', 'K3', 'K4'] }
+  };
+  function shortName(defs, c) { var d = (defs || {})[c]; return d ? d.name.replace(/^[^：]+：/, '') : c; }
+  /** 主圖（階梯）：依序列出關鍵指標，標出缺口最大的一關 */
+  function ladderHtml(pk, g, R, defs) {
+    var sg = SIG[pk], minN = S.boot.settings.minN || 10;
+    var st = (sg.steps || []).map(function (k) { var c = pk + '-' + k, a = aggRange(g(c), R.months); return { k: k, c: c, a: a, name: shortName(defs, c), fu: FU_BASED.test(c) }; })
+      .filter(function (x) { return (defs || {})[x.c]; });
+    var ok = st.filter(function (x) { return x.a && x.a.rate !== null; });
+    var low = ok.slice().sort(function (a, b) { return a.a.rate - b.a.rate; })[0];
+    var finding = low ? '缺口最大：' + low.name + '（' + low.a.rate + '%，' + low.a.num + '／' + low.a.den + '）' : '資料尚不足以判斷缺口：' + (st.some(function (x) { return x.fu; }) ? '追蹤時的結果需等回診順問或電話追蹤回填。' : '本區間紀錄數不足 ' + minN + '。');
+    return '<div class="finding">' + esc(finding) + '</div><div class="ladder">' + st.map(function (x, i) {
+      var a = x.a, v = !a || (a.hasDen && !a.den) || (a.rate === null && !a.small) ? emptyTxt(x.c) : a.small ? '樣本不足（n＝' + a.den + '）' : a.rate + '%';
+      var w = a && a.rate !== null ? a.rate : 0;
+      return '<div class="lstep' + (low && x.c === low.c ? ' gap' : '') + '"><span class="lno">' + (i + 1) + '</span><span class="lname">' + esc(x.name) + '<span class="note">' + (x.fu ? '追蹤時' : '本次指導') + '・' + x.k + '</span></span>' +
+        '<span class="lbar"><span style="width:' + w + '%"></span></span><span class="lval">' + esc(v) + (a && a.rate !== null ? '<span class="note">　' + a.num + '／' + a.den + '</span>' : '') + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function deviceSigHtml(sd) {
+    if (!sd || !sd.device || !sd.device.length) return '<div class="empty">本區間尚無裝置技巧評估紀錄</div>';
+    var dv = sd.dev2 || {};
+    var worst = null; sd.device.forEach(function (d) { d.items.forEach(function (it) { if (it.asked >= 5 && (!worst || it.fail / it.asked > worst.fail / worst.asked)) worst = it; }); });
+    return '<div class="finding">' + esc(worst ? '最常做錯：' + worst.text + '（' + Math.round(worst.fail / worst.asked * 100) + '%，' + worst.fail + '／' + worst.asked + '）' : '各步驟評估次數未達 5 次，尚不判斷最常做錯的步驟') + '</div>' +
+      sd.device.map(function (d) {
+        return '<section class="devsig"><h3>' + esc(d.name) + '<span class="note">　評估 ' + d.n + ' 次，通過 ' + d.pass + '（' + (d.n ? Math.round(d.pass / d.n * 100) : 0) + '%）</span></h3>' +
+          (d.items.length ? d.items.map(function (it) {
+            var r = Math.round(it.fail / it.asked * 100);
+            return '<div class="lstep"><span class="lname">' + (it.crit ? '<b class="crit">關鍵</b> ' : '') + esc(it.text) + '</span><span class="lbar bad"><span style="width:' + r + '%"></span></span><span class="lval">' + (it.asked >= 5 ? r + '%' : '樣本不足') + '<span class="note">　未做到 ' + it.fail + '／' + it.asked + '</span></span></div>';
+          }).join('') : '<div class="note">無逐項結果</div>') + '</section>';
+      }).join('') +
+      '<div class="note">首評未通過後再評估：' + (dv.reassessed ? dv.reassessed + ' 人次，其中通過 ' + dv.improved + '（' + Math.round(dv.improved / dv.reassessed * 100) + '%）' : '本區間尚無複評') + '。列出未做到比率最高的 8 個步驟。</div>';
+  }
+  function painSigHtml(sd) {
+    var p = sd && sd.pain;
+    if (!p || !p.n) return '<div class="empty">待追蹤回填：需首次與追蹤時都填疼痛分數（0–10）才會配對</div>';
+    var seg = function (n, cls, t) { return n ? '<span class="' + cls + '" style="flex:' + n + '" title="' + esc(t + ' ' + n) + '"></span>' : ''; };
+    return '<div class="finding">' + esc('配對 ' + p.n + ' 人次：平均由 ' + p.before + ' 分降到 ' + p.after + ' 分；改善 ≥2 分 ' + p.drop2 + ' 人次（' + Math.round(p.drop2 / p.n * 100) + '%）') + '</div>' +
+      '<div class="srcbar pain" role="img" aria-label="' + esc('改善 ≥2 分 ' + p.drop2 + '、變化小於 2 分 ' + p.same + '、變差 ' + p.worse) + '">' + seg(p.drop2, 'pg', '改善 ≥2 分') + seg(p.same, 'pm', '變化小於 2 分') + seg(p.worse, 'pb', '變差') + '</div>' +
+      '<ul class="srclist"><li><span class="sw pg"></span>改善 ≥2 分 <b>' + p.drop2 + '</b></li><li><span class="sw pm"></span>變化小於 2 分 <b>' + p.same + '</b></li><li><span class="sw pb"></span>變差 <b>' + p.worse + '</b></li></ul>';
+  }
+  /** 高齡照護看板：≥65 歲由年齡自動納入 */
+  function geriHtml(d, R) {
+    var B = byCodeOf(d.rows), g = function (c) { return B.by[c]; };
+    var a6 = aggRange(g('GE-6A'), R.months), b6 = aggRange(g('GE-6B'), R.months);
+    var ref = function (a) { return a && a.rate !== null ? a.rate + '%' : a && a.small ? '樣本不足（n＝' + a.den + '）' : '尚無紀錄'; };
+    var cards = kpiCard('高齡（≥65 歲）人次占比', g('GE-1'), R, '≥65 歲人次／有年齡之人次', { code: 'GE-1' }) +
+      kpiCard('多重用藥比例', g('GE-2'), R, '長期用藥 ≥5 項', { code: 'GE-2' }) +
+      kpiCard('多重用藥者完整用藥盤點', g('GE-3'), R, '完成保健品、中草藥、成藥盤點', { code: 'GE-3' }) +
+      kpiCard('應避免用藥提示處理', g('GE-4'), R, '提示後登記問題或轉介', { code: 'GE-4' }) +
+      kpiCard('照顧者參與（≥75 歲）', g('GE-5'), R, '照顧者全程在場', { code: 'GE-5' }) +
+      kpiCard('逐項教回首次答對（≥65 歲）', g('GE-6A'), R, '未滿 65 歲對照：' + ref(b6), { code: 'GE-6A' }) +
+      kpiCard('追蹤時用藥問題已改善', g('GE-7'), R, '有不當用藥行為且已追蹤', { code: 'GE-7' });
+    var bands = [['6574', '65–74 歲'], ['7584', '75–84 歲'], ['85', '85 歲以上']], polys = [['LT5', '<5 項'], ['5-9', '5–9 項'], ['GE10', '≥10 項'], ['UNK', '未確認']];
+    var heat = '<div class="tablewrap"><table class="t heat geri"><thead><tr><th>年齡層＼品項數</th>' + polys.map(function (p) { return '<th>' + p[1] + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      bands.map(function (b) {
+        return '<tr><th>' + b[1] + '</th>' + polys.map(function (p) {
+          var a = aggRange(g('GEH-' + b[0] + '-' + p[0]), R.months);
+          if (!a || !a.den) return '<td class="hc hn" title="無紀錄"></td>';
+          var r = Math.round(a.num / a.den * 100);
+          return '<td class="hc ' + (a.den < (S.boot.settings.minN || 10) ? 'few' : heatClass(Math.min(100, r * 2))) + '" title="' + esc(b[1] + '、' + p[1] + '：發現 ' + a.num + '／' + a.den + ' 人次') + '">' + (a.den < (S.boot.settings.minN || 10) ? 'n' + a.den : r + '%') + '</td>';
+        }).join('') + '</tr>';
+      }).join('') + '</tbody></table></div>';
+    var beh = B.order.filter(function (c) { return /^GE-8-/.test(c); }).map(function (c) { var a = aggRange(g(c), R.months) || { num: 0 }; return { name: B.by[c].name.replace(/^[^：]+：/, ''), n: a.num }; })
+      .filter(function (x) { return x.n; }).sort(function (a, b) { return b.n - a.n; });
+    var top = beh.length ? beh[0].n : 1;
+    return '<div class="card packhead"><h2>高齡照護（≥65 歲）</h2><div class="note">' + esc(R.from + '～' + R.to) + '｜由「年齡」欄自動納入，不由藥師勾選；年齡欄自 v3.0 上線起才有資料，舊紀錄不回溯。</div></div>' +
+      '<div class="dcards">' + cards + '</div>' +
+      '<div class="card"><h2>年齡層 × 長期用藥品項數：用藥問題發現率</h2><div class="note">格內＝發現問題或不當用藥行為之人次比率；色越深越高；分母不足 ' + (S.boot.settings.minN || 10) + ' 顯示 n。用於辨識多重用藥者是否需要更多溝通時間。</div>' + heat + '</div>' +
+      '<div class="card"><h2>高齡者不當用藥行為類型</h2>' + (beh.length ? '<div class="ladder">' + beh.map(function (x) { return '<div class="lstep"><span class="lname">' + esc(x.name) + '</span><span class="lbar"><span style="width:' + Math.round(x.n / top * 100) + '%"></span></span><span class="lval">' + x.n + ' 件</span></div>'; }).join('') + '</div>' : '<div class="empty">尚無紀錄</div>') + '<div class="note">監測用，不作績效。</div></div>';
+  }
   function viewDashboard(view) {
     var nowYm = today().slice(0, 7);
     var U = S.boot.user || {}, lvN = { L1: 1, L2: 2, L3: 3, L4: 4 }[U.level] || 1;
-    var tabs = U.learner === 'UGY' ? [['LRN', '學習歷程']] : [['DEPT', '科總覽'], ['PACK', '照護面向'], ['ME', '本人']]
+    var tabs = U.learner === 'UGY' ? [['LRN', '學習歷程']] : [['DEPT', '科總覽'], ['PACK', '疾病面向'], ['GERI', '高齡照護'], ['ME', '本人']]
       .concat(U.learner === 'PGY' || U.learner === 'TCH' || lvN >= 2 ? [['LRN', '學習歷程']] : [])
       .concat(lvN >= 2 ? [['TRAINEE', '同仁']] : []).concat([['KANBAN', '改善看板'], ['DQ', '資料品質'], ['DEV', '裝置與藥品']]);
     var V = S.dashView && tabs.some(function (t) { return t[0] === S.dashView; }) ? S.dashView : tabs[0][0];
@@ -1938,25 +2191,37 @@
             var dz = (d.packSummary || []).filter(function (p) { return p.cls === '疾病' || p.cls === '跨職類'; });
             var tN = 0, tD = 0; dz.forEach(function (p) { if (p.tDen) { tN += p.tNum; tD += p.tDen; } });
             var tCard = '<div class="dcard kcard2"><div class="dk">疾病面向目標達成</div><div class="big">' + (tD ? Math.round(tN / tD * 1000) / 10 + '%' : '—') + '</div><div class="ds">' + (tD ? tN + '／' + tD + ' 人次（新平台月份；服務線不計）' : '區間內無新平台月份或未設目標') + '</div><div class="dfoot"><span class="note">目標唯一來源＝疾病包登錄</span></div></div>';
-            html += '<div class="dcards kpi8">' + nCard('整體人次（同病人同日計 1）') + tCard +
-              kpiCard('教回完全理解（最終）', g('C3'), R, '排除無法應答') + kpiCard('不當用藥行為發現', g('M1'), R, '新平台紀錄') +
-              kpiCard('介入接受', g('M2'), R, '病人接受藥師建議') + kpiCard('追蹤準時完成', g('G5'), R, '到期後 7 日內') +
-              kpiCard('核心藥未自行中斷', g('G1'), R, '追蹤完成者') + kpiCard('30 日同題重複諮詢', g('B1'), R, '不同日；越低越好', { lowGood: true }) + '</div>' +
+            // v3.0 V-1：首屏 9 項主顯；疾病面向與服務線人次分開
+            var slN = (d.packSummary || []).filter(function (p) { return p.cls === '服務線'; }).reduce(function (a, p) { return a + p.n; }, 0);
+            var dzN = dz.reduce(function (a, p) { return a + p.n; }, 0);
+            var volCard = '<div class="dcard kcard2"><div class="dk">疾病面向人次</div><div class="big">' + dzN + '</div><div class="ds">服務線（特殊製劑、小兒科用藥等）' + slN + '　整體 ' + a1.num + '　紀錄筆數 ' + a0.num + '</div>' +
+              '<div class="dfoot">' + deltaN(a1.num, p1 ? p1.num : 0) + trendSvg(c1, R.months, 'n', R.cut) + '</div><div class="note">整體人次對前期；疾病面向含次面向與藥品唯一歸因</div></div>';
+            html += '<div class="dcards kpi9">' + volCard + tCard +
+              kpiCard('逐項教回首次答對', g('O3I'), R, '以項計；提示後答對不計入', { code: 'O3I' }) + kpiCard('用藥問題發現', g('M0'), R, '發現問題或不當用藥行為', { code: 'M0' }) +
+              kpiCard('介入接受', g('M2'), R, '病人接受藥師修正建議', { code: 'M2' }) + kpiCard('追蹤時用藥問題已改善', g('M3'), R, '有不當用藥行為且已追蹤', { code: 'M3' }) +
+              kpiCard('核心藥未自行中斷', g('G1'), R, '已完成追蹤者', { code: 'G1' }) + kpiCard('警訊複述', g('G2'), R, '已完成追蹤者', { code: 'G2' }) +
+              kpiCard('追蹤完成', g('C6'), R, '到期之追蹤中已完成', { code: 'C6' }) + '</div>' +
               '<div class="row two dash2">' + funnelHtml(g, R) + sourceSplit(d) + '</div>' +
               heatmapHtml(d.packSummary || [], R) + smallMultiples(d.packSummary || [], d.defs, R) + serviceLines(d.packSummary || [], R);
           } else {
             var title = (sel.options[sel.selectedIndex] || {}).text || '', meta = (d.packs || []).filter(function (p) { return p.code === pk; })[0] || {};
             var t1 = g('T1'), tN2 = 0, tD2 = 0;
             if (t1) R.months.forEach(function (m) { var r = t1.m[m]; if (r && m >= R.cut && r.target) { tN2 += r.num || 0; tD2 += r.target; } });
-            var mains = Object.keys(d.defs || {}).filter(function (c) { return d.defs[c].pack === pk && d.defs[c].main; }).sort();
-            var others = Object.keys(d.defs || {}).filter(function (c) { return d.defs[c].pack === pk && /-K\d$/.test(c) && !d.defs[c].main; }).sort();
-            html += '<div class="card packhead"><h2>' + esc(title) + '</h2><div class="note">' + esc(rangeTxt) + (meta.cls === '服務線' ? '｜服務線：不計入疾病 KPI 與目標達成' : '') + (meta.period === '季' ? '｜低量面向：請以季或累計判讀，單月比率不具意義' : '') + (meta.pharm === false ? '｜跨職類照護：藥師非主責，以下不作藥師績效' : '') + '</div></div>' +
-              '<div class="dcards">' + nCard('面向人次（同病人同日計 1）') +
-              (tD2 ? '<div class="dcard kcard2"><div class="dk">目標達成</div><div class="big">' + Math.round(tN2 / tD2 * 1000) / 10 + '%</div><div class="ds">' + tN2 + '／' + tD2 + ' 人次（新平台月份）</div><div class="dfoot"><span class="note">含次面向與藥品唯一歸因</span></div></div>' : '') +
-              kpiCard('教回完全理解（最終）', g('C3'), R, '') +
-              mains.map(function (c) { return kpiCard(d.defs[c].name.replace(/^[^：]+：/, ''), g(c), R, d.defs[c].type, { tag: d.defs[c].nature !== '績效' ? d.defs[c].nature : '主顯', lowGood: /K5$/.test(c) }); }).join('') + '</div>' +
-              (others.length ? '<details class="card sub"><summary><h2>其餘面向指標（' + others.length + '）</h2></summary><div class="dcards">' + others.map(function (c) { return kpiCard(d.defs[c].name.replace(/^[^：]+：/, ''), g(c), R, d.defs[c].type, { tag: d.defs[c].nature !== '績效' ? d.defs[c].nature : '', lowGood: /K5$/.test(c) }); }).join('') + '</div></details>' : '') +
+            var kcodes = ['K1', 'K2', 'K3', 'K4', 'K5'].map(function (k) { return pk + '-' + k; }).filter(function (c) { return (d.defs || {})[c]; });
+            var sg = SIG[pk];
+            // v3.0：頁首三個共同數字＋該面向專屬主圖＋K1–K5（K5 平衡固定最右）＋追蹤漏斗＋本人層
+            html += '<div class="card packhead"><h2>' + esc(title) + '</h2>' + (sg ? '<div class="pq">' + esc(sg.q) + '</div>' : '') + '<div class="note">' + esc(rangeTxt) + (meta.cls === '服務線' ? '｜服務線：不計入疾病 KPI 與目標達成' : '') + (meta.period === '季' ? '｜低量面向：請以季或累計判讀，單月比率不具意義' : '') + (meta.pharm === false ? '｜跨職類照護：藥師非主責，以下不作藥師績效' : '') + '</div></div>' +
+              '<div class="dcards three">' +
+              '<div class="dcard kcard2"><div class="dk">人次對目標</div><div class="big">' + a1.num + '</div><div class="ds">' + (tD2 ? '目標達成 ' + Math.round(tN2 / tD2 * 1000) / 10 + '%（' + tN2 + '／' + tD2 + '，新平台月份）' : '未設每月目標') + '</div><div class="dfoot">' + deltaN(a1.num, p1 ? p1.num : 0) + trendSvg(c1, R.months, 'n', R.cut) + '</div></div>' +
+              kpiCard('用藥問題發現', g('M0'), R, '發現問題或不當用藥行為', { code: 'M0' }) + kpiCard('追蹤完成', g('C6'), R, '到期之追蹤中已完成', { code: 'C6' }) + '</div>' +
+              (sg ? '<div class="card sig"><h2>主圖：' + esc(sg.q) + '</h2><div id="sigBody">' + (sg.type === 'ladder' ? ladderHtml(pk, g, R, d.defs) : '<div class="empty">載入中…</div>') + '</div></div>' : '') +
+              (kcodes.length ? '<div class="card"><h2>關鍵指標 K1–K5</h2><div class="note">K1、K2＝本次指導（藥師作業，不適用者不入分母）；K3、K4＝追蹤時病人狀況；K5＝平衡指標，越低越好。標「監測」者非藥師可控，只供觀察。</div><div class="dcards">' +
+                kcodes.map(function (c) { var dd = d.defs[c]; return kpiCard(shortName(d.defs, c), g(c), R, dd.type, { code: c, tag: dd.nature !== '績效' ? dd.nature : (dd.main ? '主顯' : ''), lowGood: /K5$/.test(c) }); }).join('') + '</div></div>' : '') +
               funnelHtml(g, R);
+            var mine = (d.person || []).filter(function (p) { return p.pack === pk && p.name === (S.boot.user || {}).name; });
+            var my = mine.reduce(function (o, p) { o.ep += p.ep; o.n += p.n; o.due += p.due; o.done += p.done; return o; }, { ep: 0, n: 0, due: 0, done: 0 });
+            html += '<div class="card"><h2>本人 × ' + esc(title) + '</h2>' + (my.n ? '<div class="ds">人次 <b>' + my.ep + '</b>（紀錄 ' + my.n + ' 筆）　追蹤到期 ' + my.due + '、已完成 ' + my.done + (my.due ? '（' + Math.round(my.done / my.due * 100) + '%）' : '') + '</div>' : '<div class="empty">所選區間本人在此面向尚無紀錄</div>') +
+              '<div class="note">個人逐項教回、追蹤改善等完整指標見「本人」頁；不顯示他人姓名、不排名。</div></div>';
           }
           var people = {}; (d.person || []).forEach(function (p) { var k = p.name + '|' + p.pack; var o = people[k] = people[k] || { name: p.name, pack: p.packName || p.pack, n: 0, ep: 0, due: 0, done: 0 }; o.n += p.n; o.ep += p.ep; o.due += p.due; o.done += p.done; });
           var pl = Object.keys(people).map(function (k) { return people[k]; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
@@ -1964,9 +2229,19 @@
             pl.map(function (p) { return '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.pack) + '</td><td class="num">' + p.ep + '</td><td class="num">' + p.n + '</td><td class="num">' + p.due + '</td><td class="num">' + p.done + '</td></tr>'; }).join('') +
             '</tbody></table></div></details>' : '';
           $('#dres').innerHTML = html + (ins ? spcPanel(ins.spc, base, V === 'PACK') : '') + yearsTable(d.years, pk || 'ALL') +
-            '<div class="card"><h2>' + esc(V === 'DEPT' ? '科總覽' : (sel.options[sel.selectedIndex] || {}).text || '') + '：全部指標（' + esc(R.from + '～' + R.to) + '）</h2>' + indicatorListRange(d.rows, R, d.defs, pk || 'ALL') + '</div>' + ptable;
+            '<details class="card sub allind"><summary><h2>' + esc(V === 'DEPT' ? '科總覽' : (sel.options[sel.selectedIndex] || {}).text || '') + '：全部指標（' + esc(R.from + '～' + R.to) + '）</h2></summary>' + indicatorListRange(d.rows, R, d.defs, pk || 'ALL') + '</details>' + ptable;
           bindCommon();
           $('#dlast').textContent += '　已更新 ' + B.order.length + ' 項指標。';
+          if (V === 'PACK' && SIG[pk] && SIG[pk].type !== 'ladder') vapi('signature', { pack: pk, from: R.from, to: R.to }).then(function (sd) {
+            if (!$('#sigBody')) return; $('#sigBody').innerHTML = SIG[pk].type === 'device' ? deviceSigHtml(sd) : painSigHtml(sd);
+          }).catch(function (e) { if ($('#sigBody')) $('#sigBody').innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; });
+        }).catch(err);
+      } else if (V === 'GERI') {
+        $('#dpWrap').classList.add('hidden'); $('#dCsv').classList.remove('hidden');
+        vapi('dashboard', { pack: 'GERI', from: R.from, to: R.to, src: R.src }).then(function (d) {
+          foot(d); lastRows = d.rows.filter(function (r) { return r.ym >= R.from && r.ym <= R.to; });
+          $('#dres').innerHTML = geriHtml(d, R) + '<details class="card sub allind"><summary><h2>高齡照護：全部指標</h2></summary>' + indicatorListRange(d.rows.filter(function (r) { return !/^GEH-/.test(r.code); }), R, d.defs, 'GERI') + '</details>';
+          bindCommon();
         }).catch(err);
       } else if (V === 'LRN') {
         vapi('insight', { pack: 'ALL', base: 'r24' }).then(function (ins) {
@@ -2013,24 +2288,27 @@
           var who = V === 'ME' ? people.filter(function (p) { return p.self; })[0] : people.filter(function (p) { return p.pid === sel.value; })[0];
           if (!who) { $('#dres').innerHTML = '<div class="empty">' + (V === 'ME' ? '所選區間尚無您的紀錄' : '沒有可檢視的同仁資料') + '</div>'; return; }
           var tot = {}; who.months.forEach(function (m) { Object.keys(m).forEach(function (k) { if (typeof m[k] === 'number') tot[k] = (tot[k] || 0) + m[k]; }); });
-          var epCard = '<div class="dcard"><div class="dk">人次（同病人同日同面向計 1）</div><div class="big">' + (tot['人次'] || 0) + '</div><div class="ds">紀錄筆數 ' + (tot['件數'] || 0) + '（工作量）</div></div>';
+          var pkSet = {}; who.months.forEach(function (m) { (m.packs || []).forEach(function (p) { pkSet[p] = 1; }); });
+          var epCard = '<div class="dcard"><div class="dk">PK-1 指導人次與疾病面向廣度</div><div class="big">' + (tot['人次'] || 0) + '</div><div class="ds">紀錄筆數 ' + (tot['件數'] || 0) + '（工作量）；指導過 <b>' + Object.keys(pkSet).length + '</b> 個疾病面向</div>' +
+            '<div class="dfoot">' + (Object.keys(pkSet).length ? '<span class="note">' + esc(Object.keys(pkSet).map(packName).join('、')) + '</span>' : '') + '</div></div>';
           var cards = epCard + d.metrics.map(function (m) {
             var own = tot[m[3]] >= 1 ? pct(tot[m[2]] || 0, tot[m[3]]) : null, few = (tot[m[3]] || 0) < 5;
-            return '<div class="dcard"><div class="dk">' + esc(m[1]) + '</div><div class="big">' + (own === null ? '—' : few ? '<span class="small-n">樣本少（n＝' + tot[m[3]] + '）</span>' : own + '%') + '</div><div class="ds">區間 ' + (tot[m[2]] || 0) + '／' + (tot[m[3]] || 0) + '</div><div class="dfoot">' + band(d.dist[m[0]], few ? null : own) + '</div></div>';
+            var emp = /追蹤|裝置/.test(m[1]) ? '待追蹤回填' : '尚無紀錄';
+            return '<div class="dcard"><div class="dk">' + esc((m[4] ? m[4] + ' ' : '') + m[1]) + '</div><div class="big">' + (own === null ? '<span class="empty-v">' + emp + '</span>' : few ? '<span class="small-n">樣本不足（n＝' + tot[m[3]] + '）</span>' : own + '%') + '</div><div class="ds">區間 ' + (tot[m[2]] || 0) + '／' + (tot[m[3]] || 0) + '</div><div class="dfoot">' + band(d.dist[m[0]], few ? null : own) + '</div></div>';
           }).join('');
           var sup = function (m) { var a = m['督導_獨立'] || 0, b = m['督導_在場'] || 0, c = m['督導_覆核'] || 0, t = a + b + c; return { a: a, b: b, c: c, t: t }; };
           var months = R.months.map(function (m) { return who.months.filter(function (x) { return x.ym === m; })[0] || { ym: m }; });
-          var trend = '<div class="tablewrap"><table class="t"><thead><tr><th>月份</th><th>人次</th><th>紀錄筆數</th><th>教回完全</th><th>發現問題或不當行為</th><th>介入接受</th><th>追蹤準時</th><th>督導（獨立／在場／覆核）</th><th>填寫秒數中位數</th></tr></thead><tbody>' +
+          var trend = '<div class="tablewrap"><table class="t"><thead><tr><th>月份</th><th>人次</th><th>紀錄筆數</th><th>逐項教回答對</th><th>發現問題或不當行為</th><th>介入接受</th><th>追蹤準時</th><th>督導（獨立／在場／覆核）</th><th>填寫秒數中位數</th></tr></thead><tbody>' +
             months.filter(function (m) { return m['件數'] || m['追蹤到期數']; }).reverse().map(function (m) {
               var s2 = sup(m), r = function (a, b) { return b ? pct(a || 0, b) + '%<span class="note">　' + (a || 0) + '／' + b + '</span>' : '—'; };
-              return '<tr><td>' + esc(m.ym) + '</td><td class="num">' + (m['人次'] || 0) + '</td><td class="num">' + (m['件數'] || 0) + '</td><td>' + r(m['教回完全'], m['教回分母']) + '</td><td>' + r(m['發現件數'], m['件數']) + '</td><td>' + r(m['介入接受'], m['介入分母']) +
+              return '<tr><td>' + esc(m.ym) + '</td><td class="num">' + (m['人次'] || 0) + '</td><td class="num">' + (m['件數'] || 0) + '</td><td>' + r(m['逐項答對'], m['逐項分母']) + '</td><td>' + r(m['發現件數'], m['件數']) + '</td><td>' + r(m['介入接受'], m['介入分母']) +
                 '</td><td>' + r(m['追蹤準時'], m['追蹤到期數']) + '</td><td>' + (s2.t ? '<span class="stack" role="img" aria-label="' + esc('獨立 ' + s2.a + '、在場 ' + s2.b + '、覆核 ' + s2.c) + '"><span class="s1" style="flex:' + s2.a + '"></span><span class="s2" style="flex:' + s2.b + '"></span><span class="s3" style="flex:' + s2.c + '"></span></span> ' + s2.a + '／' + s2.b + '／' + s2.c : '—') +
                 '</td><td class="num">' + (m.secMed === null || m.secMed === undefined ? '—' : m.secMed) + '</td></tr>';
             }).join('') + '</tbody></table></div>';
           var st = sup(tot);
           $('#dres').innerHTML = '<div class="print-head">' + esc(S.boot.settings.hospital || '') + '　' + (V === 'ME' ? '藥師個人成效' : '學習護照：' + esc(who.name)) + '　' + esc(R.from) + '～' + esc(R.to) + '（列印 ' + today() + '）</div>' +
             '<div class="card"><h2>' + (V === 'ME' ? '我的成效' : esc(who.name)) + '（' + esc(R.from + '～' + R.to) + '）</h2><div class="note">藍點＝' + (V === 'ME' ? '本人' : '此同仁') + '；灰帶＝科內四分位區間；直線＝中位數。分布只含區間分母 ≥5 的同仁，不顯示姓名、不排名。</div>' +
-            '<div class="dcards">' + cards + '</div></div>' +
+            '<div class="dcards">' + cards + '</div><div class="note">自我檢核（只給本人參考）：單筆填寫時間中位數見下方逐月明細；單日紀錄 ≥40 筆的天數見「資料品質」。</div></div>' +
             (V === 'TRAINEE' ? '<div class="card"><h2>督導方式累計</h2><div class="ds">獨立 ' + st.a + '　教師在場 ' + st.b + '　教師事後覆核 ' + st.c +
               (st.t ? '　（獨立占 ' + pct(st.a, st.t) + '%，可作信任等級之參考，非判定）' : '　（尚無督導方式紀錄）') + '</div></div>' : '') +
             '<div class="card"><h2>逐月明細</h2>' + trend + '</div>';

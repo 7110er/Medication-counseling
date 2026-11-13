@@ -360,3 +360,47 @@ table.heat td.old { background: #fafbfc; }
 .packhead h2 { margin-bottom: 4px; }
 @media (max-width: 640px) { .fstep { grid-template-columns: 7em 1fr 2.6em; } .fstep .fconv { display: none; } }
 @media print { table.heat td.hc { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+
+/* ===== v3.0 表單：逐行填寫說明、藥師作業三態、逐項教回、回診順問 ===== */
+.hint { font-size: .82rem; color: var(--muted); line-height: 1.5; margin: 2px 0 8px; }
+.packnote { font-size: .88rem; }
+.outs .orow + .orow { margin-top: 6px; }
+.orow.autoset { border-color: var(--ok); background: #f3faf6; }
+.orow.autoset .otext::after { content: '（依裝置評估自動完成）'; color: var(--ok); font-size: .78rem; margin-left: 4px; }
+.dim { opacity: .4; pointer-events: none; }
+.visit { margin-top: 12px; padding: 12px; border: 1px solid #c9dbe8; border-left: 4px solid var(--brand); border-radius: 8px; background: #f7fafc; }
+.visit h3 { margin: 0 0 4px; font-size: .98rem; color: var(--brand); }
+.visit details.task { margin-top: 8px; }
+.visit details.task > *:not(summary) { margin-left: 12px; margin-right: 12px; }
+.visit select { margin-bottom: 10px; }
+
+/* ===== v3.0 儀表板：首屏 9 項、疾病專屬主圖、高齡熱圖、空值用語 ===== */
+.dcards.kpi9 { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.dcards.three { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.dcard .big .empty-v { font-size: 1rem; color: var(--muted); font-weight: 400; }
+.packhead .pq { font-size: 1.02rem; font-weight: 600; color: var(--ink); margin: -4px 0 6px; }
+.card.sig { border-top: 3px solid var(--brand); }
+.finding { font-size: .98rem; font-weight: 600; color: var(--ink); background: var(--brand-soft); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; }
+.ladder { display: grid; gap: 8px; }
+.lstep { display: grid; grid-template-columns: auto minmax(160px, 2fr) minmax(90px, 2fr) minmax(120px, 1.2fr); gap: 10px; align-items: center; padding: 6px 8px; border-radius: 6px; }
+.lstep.gap { background: #fff4e5; box-shadow: inset 3px 0 0 var(--warn); }
+.devsig .lstep, .card .ladder .lstep:not(:has(.lno)) { grid-template-columns: minmax(160px, 2fr) minmax(90px, 2fr) minmax(120px, 1.2fr); }
+.lno { width: 24px; height: 24px; border-radius: 50%; background: var(--brand); color: #fff; font-size: .8rem; display: inline-flex; align-items: center; justify-content: center; }
+.lname { line-height: 1.35; } .lname .note { display: block; font-size: .75rem; }
+.lbar { height: 12px; background: #eef2f5; border-radius: 6px; overflow: hidden; }
+.lbar > span { display: block; height: 100%; background: var(--brand); border-radius: 6px; }
+.lbar.bad > span { background: var(--bad); opacity: .75; }
+.lval { font-variant-numeric: tabular-nums; font-weight: 600; } .lval .note { font-weight: 400; }
+.devsig h3 { font-size: .95rem; margin: 14px 0 6px; color: var(--brand); }
+.srcbar.pain .pg, .sw.pg { background: var(--ok); } .srcbar.pain .pm, .sw.pm { background: #c7d4de; } .srcbar.pain .pb, .sw.pb { background: var(--bad); }
+table.heat.geri td.hc { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+table.heat.geri td.few { background: #f4f6f7; color: var(--muted); font-size: .8rem; }
+details.allind > summary { cursor: pointer; list-style-position: inside; }
+details.allind > summary h2 { display: inline; }
+@media (max-width: 560px) {
+  .lstep, .devsig .lstep { grid-template-columns: auto 1fr; }
+  .lstep .lbar { grid-column: 1 / -1; }
+  .lstep .lval { grid-column: 1 / -1; }
+}
+@media print { details.allind[open] { break-before: page; } }
+body:has(.kpi9) main, body:has(.card.sig) main, body:has(table.heat.geri) main { max-width: 1120px; }
