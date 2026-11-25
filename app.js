@@ -488,8 +488,9 @@
       '<div id="packNote"></div><div id="packAlt"></div><div id="packMulti"></div>' +
       '<details class="sub"><summary>合併面向（共病）</summary><div class="chips" id="packs2"></div></details>' +
       '<div class="row two"><div><label class="f">問題分類</label><select name="cat"><option value="">全部</option></select></div>' +
-      '<div><label class="f">搜尋題目</label><input type="search" name="qsearch" placeholder="輸入關鍵字"></div></div>' +
-      '<div class="qlist" id="qlist"><div class="empty">請先選擇主要照護面向</div></div>' +
+      '<div><label class="f">搜尋題目</label><input type="search" name="qsearch" placeholder="關鍵字或病人說法（Enter 搜尋全部面向）"></div></div>' +
+      '<div class="chips need" id="needChips" aria-label="依需求篩選"></div>' +
+      '<div class="qlist" id="qlist"><div class="empty">請先選擇主要照護面向</div></div><div class="note" id="qpickNote"></div>' +
       '<label class="f">病人提出的問題（可空白）</label><input type="text" name="question" maxlength="500">' +
       '<div data-field="response"><label class="f">醫療人員回應 <span class="req" id="respReq">*</span><span class="note" id="respHint"></span></label>' +
       '<div class="actions-bar left"><button type="button" class="btn small ghost hidden" id="cardFill">帶入藥品卡重點</button></div>' +
@@ -576,6 +577,8 @@
     f.pack.addEventListener('change', function () { f.pack.dataset.auto = ''; onPackChange(f); });
     f.cat.addEventListener('change', function () { renderQuestions(f); });
     f.qsearch.addEventListener('input', function () { renderQuestions(f); });
+    $('#needChips', f).addEventListener('click', function (e) { var b = e.target.closest('[data-need]'); if (!b) return; var n = b.getAttribute('data-need'); f._need = f._need === n ? '' : n; renderQuestions(f); });
+    f.qsearch.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); crossSearch(f); } });
     f.dq.addEventListener('input', function () { renderDrugSearch(f); });
     f.dq.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); var first = $('#dqres [data-pick]', f); if (first) first.click(); }
@@ -660,6 +663,7 @@
     if ($('#behMore', f)) $('#behMore', f).addEventListener('click', function () { $('#behaviors', f).classList.remove('collapsed'); this.remove(); });
     $('#qlist', f).addEventListener('click', function (e) {
       if (e.target.closest('[data-qall]')) { f._qAll = true; renderQuestions(f); return; }
+      if (e.target.closest('[data-xs]')) { crossSearch(f); return; }
       var qt = e.target.closest('.qtext');
       if (qt) { var cb = $('input[name=qpick]', qt.closest('.qitem')); if (cb) cb.click(); }
     });
@@ -1164,7 +1168,7 @@
   function onPackChange(f) {
     var code = f.pack.value;
     var p = S.boot.packs.filter(function (x) { return x.code === code; })[0];
-    f._qAll = false;
+    f._qAll = false; f._need = ''; f._xs = null;
     renderPackAlt(f); renderPackMulti(f);
     $('#packNote', f).innerHTML = (f.pack.dataset.auto === '1' ? '<div class="note"><span class="auto">自動</span> 依藥品帶入，可修改</div>' : '') +
       (p && p.status === '過渡沿用' ? '<div class="msg info">此面向沿用舊版題庫，內容尚未完成來源複審；回應請依現行指引自行確認。</div>' : '');
@@ -1215,7 +1219,7 @@
     loadQuestions(code).then(function (qs) {
       if (f.pack.value !== code) return;
       var cats = {};
-      qs.forEach(function (q) { cats[q.cat === 'QX' ? 'QX:' + (q.legacyCat || '其他') : q.cat] = true; });
+      qs.forEach(function (q) { cats[qKey(q)] = true; });
       f.cat.innerHTML = '<option value="">全部</option>' + Object.keys(cats).sort().map(function (k) {
         var label = k.indexOf('QX:') === 0 ? k.slice(3) : codeText('問題分類', k);
         return '<option value="' + esc(k) + '">' + esc(label) + '</option>';
@@ -1229,41 +1233,108 @@
     return api('questions', { pack: code }).then(function (qs) { S.qcache[code] = qs; return qs; });
   }
 
+  /* v3.3 B1／B3／B4／B6：逐題狀態、警訊置頂、跨面向搜尋與同義詞、需求篩選、先確認清單 */
+  var NEED = [['USE', '用法與漏服'], ['SAFE', '副作用與安全'], ['STOP', '停藥與調整'], ['RED', '何時就醫'], ['LIFE', '生活與飲食'], ['CARE', '照顧與資源']];
+  var PUB_TXT = { PENDING: ['待簽核', '已查證改寫、待主責藥師簽核：可參考，不自動帶入'], DRAFT: ['草稿', '未完成查證：可參考，不自動帶入'], STAFF: ['人員參考', '給醫療人員的專業內容，不給病人、不自動帶入'] };
+  var PUB_RANK = { OK: 0, PENDING: 1, DRAFT: 2, STAFF: 3 };
+  function qKey(q) { return q.cat === 'QX' ? 'QX:' + (q.sub || q.legacyCat || '其他') : q.cat; }
+  function needOf(q) {
+    var o = {}, h = q.htags || [], qq = q.q || '';
+    if (h.indexOf('MISS') >= 0 || /怎麼用|用法|使用方法|什麼時間|怎麼吃|怎麼擦|怎麼點|怎麼吸|怎麼打|忘記/.test(qq)) o.USE = 1;
+    if (/副作用|過敏|不良反應|交互|一起(吃|用)|併用|不舒服/.test(qq)) o.SAFE = 1;
+    if (h.indexOf('STOP') >= 0) o.STOP = 1;
+    if ((q.tags || []).indexOf('REDFLAG') >= 0 || (q.rf || []).length || q.cat === 'Q4' || /立即就醫|119|急診|要就醫/.test(qq)) o.RED = 1;
+    if (q.cat === 'Q3' || /飲食|吃什麼|運動|喝酒|生活|作息/.test(qq)) o.LIFE = 1;
+    if (q.cat === 'Q5' || q.cat === 'Q6' || /照顧|家人|費用|回診|轉介|補助/.test(qq)) o.CARE = 1;
+    return o;
+  }
+  function synExpand(kw) {
+    var out = [kw];
+    (((S.boot || {}).v33 || {}).syn || []).forEach(function (g) {
+      if (g.some(function (w) { w = String(w).toLowerCase(); return w && (w.indexOf(kw) >= 0 || kw.indexOf(w) >= 0); }))
+        g.forEach(function (w) { w = String(w).toLowerCase(); if (w && out.indexOf(w) < 0) out.push(w); });
+    });
+    return out;
+  }
+  function qById(f, id) {
+    var a = (S.qcache[f.pack.value] || []).filter(function (q) { return q.id === id; })[0];
+    return a || (S.qx || {})[id] || null;
+  }
+  function qItemHtml(q, picked, xpack) {
+    var v = (S.boot || {}).v33 || {}, pt = PUB_TXT[q.pub];
+    var chk = (q.htags || []).filter(function (t) { return (v.check || {})[t]; }).map(function (t) {
+      return '<div class="qcheck"><b>回答前先確認（' + esc((v.htags || {})[t] || t) + '）</b><ul>' + v.check[t].map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>';
+    }).join('');
+    return '<div class="qitem' + (pt ? ' qpub-' + q.pub.toLowerCase() : '') + '"><input type="checkbox" name="qpick" value="' + esc(q.id) + '"' + (xpack ? ' data-xp="' + esc(xpack) + '"' : '') +
+      (picked.indexOf(q.id) >= 0 ? ' checked' : '') + ' aria-label="選擇題目"><div class="q"><div class="qtext">' + esc(q.q) + '</div><div class="meta">' +
+      (xpack ? '<span class="tag">' + esc(q.packName || xpack) + '</span> ' : '') +
+      (pt ? '<span class="tag pub" title="' + esc(pt[1]) + '">' + esc(pt[0]) + '</span> ' : '') +
+      ((q.tags || []).indexOf('REDFLAG') >= 0 || (q.rf || []).length ? ' <span class="tag bad">紅旗</span>' : '') +
+      (q.att ? ' <button type="button" class="btn ghost small" data-att="' + esc(q.id) + '">附件</button>' : '') +
+      '</div><details><summary>預覽回應</summary>' + (pt ? '<div class="msg warn small">' + esc(pt[1]) + (q.why ? '（' + esc(q.why) + '）' : '') + '</div>' : '') + chk +
+      '<div>' + esc(q.a) + '</div><div class="note">題目編號 ' + esc(q.id) + '</div>' +
+      (q.staff ? '<div class="qstaff"><b>人員提示（不給病人）</b>\n' + esc(q.staff) + '</div>' : '') +
+      (q.cond ? '<details class="qcond"><summary>使用條件（審查紀錄）</summary><div>' + esc(q.cond) + '</div></details>' : '') + '</details></div></div>';
+  }
   function renderQuestions(f) {
     var code = f.pack.value;
     var qs = S.qcache[code] || [];
-    var cat = f.cat.value, kw = f.qsearch.value.trim().toLowerCase();
+    var cat = f.cat.value, kw = f.qsearch.value.trim().toLowerCase(), need = f._need || '';
     var picked = vals(f, 'qpick');
+    var terms = kw ? synExpand(kw) : [];
+    var nb = $('#needChips', f);
+    if (nb) nb.innerHTML = qs.length ? NEED.map(function (n) { return '<button type="button" class="chip' + (need === n[0] ? ' on' : '') + '" data-need="' + n[0] + '" aria-pressed="' + (need === n[0]) + '">' + esc(n[1]) + '</button>'; }).join('') : '';
     var list = qs.filter(function (q) {
-      var k = q.cat === 'QX' ? 'QX:' + (q.legacyCat || '其他') : q.cat;
-      if (cat && k !== cat && picked.indexOf(q.id) < 0) return false;
-      if (kw && (q.q + ' ' + q.a).toLowerCase().indexOf(kw) < 0 && picked.indexOf(q.id) < 0) return false;
+      if (picked.indexOf(q.id) >= 0) return true;
+      if (cat && qKey(q) !== cat) return false;
+      if (need && !needOf(q)[need]) return false;
+      if (terms.length) { var t = (q.q + ' ' + (q.kw || '') + ' ' + q.a).toLowerCase(); if (!terms.some(function (w) { return t.indexOf(w) >= 0; })) return false; }
       return true;
-    });
+    }).map(function (q, i) { return [q, i]; }).sort(function (a, b) { return (PUB_RANK[a[0].pub] || 0) - (PUB_RANK[b[0].pub] || 0) || a[1] - b[1]; }).map(function (x) { return x[0]; });
     // v2.5 U9：未篩選時先列 5 題（已勾選者永遠列出），其餘按「顯示全部」
-    var total = list.length, limited = !cat && !kw && !f._qAll && list.length > 5;
+    var total = list.length, limited = !cat && !kw && !need && !f._qAll && list.length > 5;
     if (limited) { var shown = 0; list = list.filter(function (q) { if (picked.indexOf(q.id) >= 0) return true; shown++; return shown <= 5; }); }
-    $('#qlist', f).innerHTML = list.length ? list.map(function (q) {
-      return '<div class="qitem"><input type="checkbox" name="qpick" value="' + esc(q.id) + '"' + (picked.indexOf(q.id) >= 0 ? ' checked' : '') +
-        ' aria-label="選擇題目"><div class="q"><div class="qtext">' + esc(q.q) + '</div><div class="meta">' +
-        (q.tags.indexOf('REDFLAG') >= 0 ? ' <span class="tag bad">紅旗</span>' : '') +
-        (q.att ? ' <button type="button" class="btn ghost small" data-att="' + esc(q.id) + '">附件</button>' : '') +
-        '</div><details><summary>預覽回應</summary><div>' + esc(q.a) + '</div><div class="note">題目編號 ' + esc(q.id) + '</div>' +
-        (q.staff ? '<div class="qstaff"><b>人員提示（不給病人）</b>\n' + esc(q.staff) + '</div>' : '') + '</details></div></div>';
-    }).join('') + (limited ? '<div class="qmore"><button type="button" class="btn small ghost" data-qall>顯示全部 ' + total + ' 題</button></div>' : '') :
-      '<div class="empty">' + (qs.length ? '沒有符合的題目' : '此面向為自由記錄，請直接填寫回應') + '</div>';
+    var html = list.length ? list.map(function (q) { return qItemHtml(q, picked); }).join('') + (limited ? '<div class="qmore"><button type="button" class="btn small ghost" data-qall>顯示全部 ' + total + ' 題</button></div>' : '') :
+      '<div class="empty">' + (qs.length ? '本面向沒有符合的題目' : '此面向為自由記錄，請直接填寫回應') + '</div>';
+    // 跨面向：已勾選的他面向題目永遠列出；輸入 2 字以上可搜尋全部面向
+    var xs = Object.keys(S.qx || {}).filter(function (id) { return picked.indexOf(id) >= 0 && S.qx[id].pack !== code; }).map(function (id) { return S.qx[id]; });
+    if (f._xs && f._xs.kw === kw) f._xs.items.forEach(function (q) { if (q.pack !== code && !xs.some(function (x) { return x.id === q.id; })) xs.push(q); });
+    if (xs.length) html += '<div class="qxhead">其他面向' + (f._xs && f._xs.kw === kw && kw ? '（搜尋「' + esc(kw) + '」）' : '') + '</div>' + xs.map(function (q) { return qItemHtml(q, picked, q.pack); }).join('');
+    else if (f._xs && f._xs.kw === kw && kw) html += '<div class="empty">其他面向也沒有符合「' + esc(kw) + '」的題目</div>';
+    if (kw.length >= 2 && !(f._xs && f._xs.kw === kw)) html += '<div class="qmore"><button type="button" class="btn small" data-xs>在全部面向搜尋「' + esc(kw) + '」</button></div>';
+    $('#qlist', f).innerHTML = html;
     $$('[data-att]', f).forEach(function (btn) { btn.addEventListener('click', function () { showAttachment(btn.getAttribute('data-att')); }); });
+  }
+  function crossSearch(f) {
+    var kw = f.qsearch.value.trim().toLowerCase(); if (kw.length < 2) return;
+    $('#qlist [data-xs]', f) && ($('#qlist [data-xs]', f).textContent = '搜尋中…');
+    api('qsearch', { q: kw }).then(function (items) {
+      S.qx = S.qx || {}; items.forEach(function (q) { if (!S.qx[q.id]) S.qx[q.id] = q; });
+      f._xs = { kw: kw, items: items }; renderQuestions(f);
+    }).catch(function (e) { toast(e.message || '搜尋失敗'); });
   }
 
   function onQuestionPick(f) {
-    var qs = S.qcache[f.pack.value] || [];
     var picked = vals(f, 'qpick');
-    var text = qs.filter(function (q) { return picked.indexOf(q.id) >= 0; }).map(function (q) { return '【' + q.q + '】\n' + q.a; }).join('\n\n');
+    var all = picked.map(function (id) { return qById(f, id); }).filter(Boolean);
+    all.forEach(function (q) { if (q.pack && q.pack !== f.pack.value && $('input[name="packs2"][value="' + q.pack + '"]', f)) { setChecked(f, 'packs2', q.pack, true); updateAvoid(f); } });
+    var ok = all.filter(function (q) { return !q.pub || q.pub === 'OK'; });
+    var rfm = ((S.boot || {}).v33 || {}).rf || {}, tier = { '立即119': 1, '當天就醫': 2, '回診告知': 3 }, rfc = [];
+    all.forEach(function (q) { (q.rf || []).forEach(function (c) { if (rfm[c] && rfc.indexOf(c) < 0) rfc.push(c); }); });
+    rfc.sort(function (a, b) { return (tier[rfm[a].tier] || 9) - (tier[rfm[b].tier] || 9); });
+    var head = rfc.length ? '【何時要立即求助】\n' + rfc.map(function (c) { return '・' + rfm[c].text; }).join('\n') : '';
+    var text = head, skipped = 0, LIMIT = 5000;
+    ok.forEach(function (q) { var p = '【' + q.q + '】\n' + q.a, nt = text ? text + '\n\n' + p : p; if (nt.length <= LIMIT) text = nt; else skipped++; });
     if (f.response.value && f.response.dataset.auto !== f.response.value && !confirm('以勾選題目的標準回應覆蓋目前內容？')) return;
-    f.response.value = text.slice(0, 5000);
+    f.response.value = text;
     f.response.dataset.auto = f.response.value;
+    var notes = [], nonOk = all.length - ok.length;
+    if (nonOk) notes.push(nonOk + ' 題為待簽核、草稿或人員參考，未自動帶入；如需說明請自行摘要');
+    if (skipped) notes.push('超過 5000 字，另 ' + skipped + ' 題未帶入；警訊已置頂保留，其餘請口頭說明或分次紀錄');
+    if (rfc.length) notes.push('已置頂 ' + rfc.length + ' 則警訊（全站統一用語）');
+    $('#qpickNote', f).textContent = notes.join('。');
     // v2.6：勾了紅旗題目 → 預勾本面向「警訊」行動計畫（可取消）
-    if (qs.some(function (q) { return picked.indexOf(q.id) >= 0 && q.tags.indexOf('REDFLAG') >= 0; })) {
+    if (all.some(function (q) { return (q.tags || []).indexOf('REDFLAG') >= 0 || (q.rf || []).length; })) {
       var rf = codes('行動計畫').filter(function (c) { return c.pack === f.pack.value && /(^|;)U-REDFLAG/.test(c.group || ''); })[0];
       if (rf && !vals(f, 'actions').length) { setChecked(f, 'actions', rf.code, true); setChecked(f, 'actions', 'NOACT', false); }
     }

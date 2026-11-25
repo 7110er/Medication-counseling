@@ -404,3 +404,15 @@ details.allind > summary h2 { display: inline; }
 }
 @media print { details.allind[open] { break-before: page; } }
 body:has(.kpi9) main, body:has(.card.sig) main, body:has(table.heat.geri) main { max-width: 1120px; }
+/* v3.3：逐題狀態、需求篩選、先確認、跨面向 */
+.chips.need { margin: 8px 0 4px; }
+.chips.need .chip { background: #fff; cursor: pointer; font: inherit; }
+.qitem.qpub-draft .qtext, .qitem.qpub-pending .qtext, .qitem.qpub-staff .qtext { color: var(--muted); }
+.tag.pub { background: #eef1f5; color: #4a5568; border-color: #d5dbe3; }
+.msg.small { font-size: .82rem; padding: 6px 8px; margin: 6px 0; }
+.qcheck { margin: 6px 0; padding: 6px 8px; background: #f2f7fd; border-left: 3px solid var(--brand); font-size: .85rem; }
+.qcheck ul { margin: 4px 0 0 18px; padding: 0; }
+.qcond summary { font-size: .8rem; color: var(--muted); }
+.qcond div { font-size: .8rem; color: var(--muted); }
+.qxhead { padding: 8px 12px; font-size: .82rem; font-weight: 600; color: var(--muted); background: #f7f8fa; border-top: 1px solid var(--line); }
+#qpickNote:empty { display: none; }
