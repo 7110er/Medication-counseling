@@ -170,6 +170,44 @@
   function today() { var d = new Date(Date.now() + 8 * 3600 * 1000); return d.toISOString().slice(0, 10); }
   function ymdAdd(ymd, n) { var d = new Date(ymd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
   /* v2.5 U9：記住上次選的病人來源（代碼，不含病人資料）；瀏覽器不允許時只記在記憶體 */
+  /* v3.2 病房：拆解規則與 PCNE 彙總（pcnWardParse_）相同，後端存檔前再拆一次並去床號 */
+  function wardParse(v) {
+    var s = String(v || '').replace(/[！-～]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }).replace(/　/g, ' ').trim()
+      .replace(/\s+/g, '').replace(/[\\|]/g, '/');
+    if (!s) return { w: '', d: '' };
+    var WR = /^(ICU\d?|\d{1,2}[A-Z]|\d{2})(-?\d{1,3})?$/, AL = { '急內': '急診內科', '急外': '急診外科', '急兒': '急診小兒科' };
+    var dn = function (x) { x = String(x || '').replace(/\//g, ''); return AL[x] || x; };
+    var wc = function (x) { var m = WR.exec(String(x || '').toUpperCase()); return m ? m[1] : ''; };
+    var i = s.indexOf('/');
+    if (i < 0) {
+      var w0 = wc(s); if (w0) return { w: w0, d: '' };
+      var m1 = /^(.*?[^0-9A-Za-z\-])((?:ICU\d?|\d{1,2}[A-Za-z])-?\d{1,3})$/.exec(s);
+      return m1 ? { w: wc(m1[2]), d: dn(m1[1]) } : { w: '', d: dn(s) };
+    }
+    var a = s.slice(0, i), b = s.slice(i + 1), au = a.toUpperCase(), bu = b.replace(/\//g, '');
+    var wa = wc(au); if (wa) return { w: wa, d: dn(b) };
+    if (/^[0-9A-Z\-]{1,8}$/.test(au)) return { w: au, d: dn(b) };
+    var wb = wc(bu); if (wb) return { w: wb, d: dn(a) };
+    return { w: '', d: dn(s) };
+  }
+  var WARD_IN = { IPD: 1, DC: 1 }, WARD_OUT = { OPD: 1, ER: 1 };
+  function lastWard(v) {
+    if (v !== undefined) { try { localStorage.setItem('hcp.lastWard', v); } catch (e) { /* ignore */ } return v; }
+    try { return localStorage.getItem('hcp.lastWard') || ''; } catch (e) { return ''; }
+  }
+  function syncWard(f) {
+    var src = f.source.value, box = $('#wardBox', f), inp = f.ward, u = (S.boot && S.boot.units) || { wards: [], depts: [] };
+    box.classList.toggle('hidden', !src);
+    var inpt = !!WARD_IN[src];
+    $('#wardLbl', f).textContent = inpt ? '病房' : '科別（選填）';
+    $('#wardReq', f).classList.toggle('hidden', !inpt);
+    inp.placeholder = inpt ? '病房碼/科別，例：8B-29/肝膽腸胃科' : '例：心臟血管內科';
+    $('#wardList', f).innerHTML = (inpt ? u.wards : u.depts).map(function (x) { return '<option value="' + esc(x) + '">'; }).join('');
+    var p = wardParse(inp.value), h = $('#wardHint', f);
+    if (!inp.value.trim()) h.textContent = inpt ? '床號只用來辨識病房，不會保存。科別可省略。' : '門急診不需病房碼。';
+    else if (inpt) h.textContent = p.w ? '將記為：病房 ' + p.w + (p.d ? '｜科別 ' + p.d : '｜科別未填') : '無法辨識病房碼，將歸「未填病房碼」；請改為如 8B、ICU1、10A。';
+    else h.textContent = '將記為：科別 ' + (p.d || p.w);
+  }
   function lastSource(v) {
     if (v) { S.lastSource = v; try { localStorage.setItem('hcp.lastSource', v); } catch (e) { /* ignore */ } return v; }
     if (S.lastSource) return S.lastSource;
@@ -424,6 +462,10 @@
       '<div data-field="mrn"><label class="f">病歷號 <span class="req">*</span></label><div class="inline"><input type="text" name="mrn" maxlength="20" autocomplete="off" spellcheck="false">' +
       '<button type="button" class="btn small ghost" id="lastBtn" title="查詢此病人過去的指導結果（留存稽核）">上次指導</button></div><div id="lastNote"></div></div>' +
       '<div data-field="source"><label class="f">病人來源 <span class="req">*</span> <span class="auto hidden" id="srcAuto">沿用上次</span></label><select name="source"><option value="">請選擇</option>' + opt('病人來源') + '</select></div></div>' +
+      // v3.2：病房（住院／出院前必填「病房碼/科別」；門急診選填科別）。拆解規則同 PCNE；床號不保存
+      '<div data-field="ward" id="wardBox" class="hidden"><label class="f"><span id="wardLbl">病房</span> <span class="req" id="wardReq">*</span> <span class="auto hidden" id="wardAuto">沿用上次</span></label>' +
+        '<input type="text" name="ward" maxlength="40" list="wardList" autocomplete="off" spellcheck="false"><datalist id="wardList"></datalist>' +
+        '<div class="hint" id="wardHint"></div></div>' +
       (b.settings.branches.length ? '<label class="f">分院</label><select name="branch"><option value="">（本院）</option>' +
         b.settings.branches.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('') + '</select>' : '') +
       // v3.0 F-6／F-7：年齡（只存歲數）；≥65 歲才問長期用藥品項數；同病人待辦追蹤（回診順問）
@@ -638,11 +680,14 @@
       if (!b2) return;
       f.pack.value = b2.getAttribute('data-altpack'); f.pack.dataset.auto = ''; onPackChange(f); updateProgress(f); S.dirty = true;
     });
-    f.source.addEventListener('change', function () { $('#srcAuto', f).classList.add('hidden'); });
+    f.source.addEventListener('change', function () { $('#srcAuto', f).classList.add('hidden'); if (!WARD_IN[f.source.value] && !$('#wardAuto', f).classList.contains('hidden')) { f.ward.value = ''; $('#wardAuto', f).classList.add('hidden'); } syncWard(f); });
+    f.ward.addEventListener('input', function () { $('#wardAuto', f).classList.add('hidden'); syncWard(f); });
     // 預先帶入
     if (pre.mrn) f.mrn.value = pre.mrn;
     var ls = lastSource();
     if (ls && $('option[value="' + ls + '"]', f.source)) { f.source.value = ls; $('#srcAuto', f).classList.remove('hidden'); }
+    var lw = lastWard(); if (lw && WARD_IN[f.source.value]) { f.ward.value = lw; $('#wardAuto', f).classList.remove('hidden'); }
+    syncWard(f);
     if (pre.fix) { f.response.value = '更正紀錄 ' + pre.fix + '：'; f.response.dataset.auto = ''; f.setAttribute('data-fix', pre.fix); }
     if (pre.last) { S.lastMrn = pre.mrn; S.last = pre.last; showLastNote(f); }
     else { S.last = {}; S.lastMrn = ''; }
@@ -661,7 +706,7 @@
     var r = collect(f, { data: function () { return ''; } });
     var miss = localCheck(r);
     syncAutoTasks(f);
-    var stepOf = { mrn: 1, source: 1, age: 1, poly: 1, visit: 1, pack: 2, response: 2, devices: 2, teachback: 3, actions: 3, intervention: 3, refRoles: 3, noFuReason: 3 };
+    var stepOf = { mrn: 1, source: 1, ward: 1, age: 1, poly: 1, visit: 1, pack: 2, response: 2, devices: 2, teachback: 3, actions: 3, intervention: 3, refRoles: 3, noFuReason: 3 };
     var bad = { 1: 0, 2: 0, 3: 0 };
     miss.forEach(function (m) { bad[stepOf[m.field] || 3]++; });
     $$('#prog [data-step]', f).forEach(function (el) {
@@ -1274,7 +1319,7 @@
       question: f.question.value.trim(), response: resp, issues: vals(f, 'issues'), needs: vals(f, 'needs'),
       advice: f.advice.value.trim(), firstTeachback: tbFirst(f),
       teachback: (function () { var t1 = tbFirst(f); return t1 === 'FULL' || t1 === 'NA' ? t1 : radio(f, 'teachback'); })(),
-      v30: true, age: f.age.value.trim(), poly: radio(f, 'poly') || '',
+      v30: true, v32: true, ward: f.ward.value.trim(), age: f.age.value.trim(), poly: radio(f, 'poly') || '',
       tbItems: (function () { var o = {}; if (f.tbNA.checked) return o; tbCodes(f).forEach(function (c) { var v = radio(f, 'tb_' + c.code); if (v) o[c.code] = v; }); return o; })(),
       tasks: (function () { var o = {}; codes('行動計畫').filter(function (c) { return c.pack === f.pack.value && isPharmTask(c.code); }).forEach(function (c) { o[c.code] = radio(f, 'task_' + c.code) || 'N'; }); return o; })(),
       fuMode: (function () { var m = radio(f, 'fuMode'); return m === 'VISIT' || m === 'TEL' ? m : ''; })(), fuModeUi: radio(f, 'fuMode') || '',
@@ -1302,6 +1347,7 @@
     var add = function (field, text) { e.push({ field: field, text: text }); };
     if (!MRN_RE.test(r.mrn)) add('mrn', '病歷號（4–20 位英數字）');
     if (!r.source) add('source', '病人來源');
+    if (WARD_IN[r.source] && !r.ward) add('ward', '病房（住院／出院前，例：8B-29/肝膽腸胃科）');
     var ag = parseInt(r.age, 10);
     if (r.age === '') add('age', '年齡'); else if (!(ag >= 0 && ag <= 120) || String(ag) !== r.age) add('age', '年齡（0–120 的整數）');
     if (ag >= 65 && !r.poly) add('poly', '長期用藥品項數（≥65 歲）');
@@ -1363,7 +1409,7 @@
     var unlock = function () { clearInterval(timer); f.classList.remove('locked'); ctrls.forEach(function (x) { x.disabled = false; }); };
     api('submit', { record: r }).then(function (res) {
       unlock();
-      lastSource(r.source);
+      lastSource(r.source); if (WARD_IN[r.source]) { var wp = wardParse(r.ward); lastWard(wp.w ? wp.w + (wp.d ? '/' + wp.d : '') : ''); } // 不保存床號
       if (r.supervision) S.lastSup = r.supervision;
       if (r.supervisor) S.lastSupT = r.supervisor;
       resetDraft();
