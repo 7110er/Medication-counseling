@@ -488,6 +488,7 @@
       '<div id="packNote"></div><div id="packAlt"></div><div id="packMulti"></div>' +
       '<details class="sub"><summary>合併面向（共病）</summary><div class="chips" id="packs2"></div></details>' +
       '<div class="row two"><div><label class="f">問題分類</label><select name="cat"><option value="">全部</option></select></div>' +
+      '<div class="hidden" id="stageBox"><label class="f">照護階段</label><select name="stage"><option value="">全部</option></select></div>' +
       '<div><label class="f">搜尋題目</label><input type="search" name="qsearch" placeholder="關鍵字或病人說法（Enter 搜尋全部面向）"></div></div>' +
       '<div class="chips need" id="needChips" aria-label="依需求篩選"></div>' +
       '<div class="qlist" id="qlist"><div class="empty">請先選擇主要照護面向</div></div><div class="note" id="qpickNote"></div>' +
@@ -576,6 +577,7 @@
     f.response.addEventListener('input', function () { $('#respCount', f).textContent = f.response.value.length + ' / 5000'; });
     f.pack.addEventListener('change', function () { f.pack.dataset.auto = ''; onPackChange(f); });
     f.cat.addEventListener('change', function () { renderQuestions(f); });
+    f.stage.addEventListener('change', function () { renderQuestions(f); });
     f.qsearch.addEventListener('input', function () { renderQuestions(f); });
     $('#needChips', f).addEventListener('click', function (e) { var b = e.target.closest('[data-need]'); if (!b) return; var n = b.getAttribute('data-need'); f._need = f._need === n ? '' : n; renderQuestions(f); });
     f.qsearch.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); crossSearch(f); } });
@@ -1214,6 +1216,7 @@
     $('#noFuReq', f).classList.toggle('hidden', !needNoFuReason(code));
     updateAvoid(f);
     updateMisuseHint(f);
+    if (f.stage) { f.stage.innerHTML = '<option value="">全部</option>'; $('#stageBox', f).classList.add('hidden'); } // v3.3.3 P4
     if (!code) { $('#qlist', f).innerHTML = '<div class="empty">請先選擇主要照護面向</div>'; return; }
     $('#qlist', f).innerHTML = '<div class="empty">載入題目中…</div>';
     loadQuestions(code).then(function (qs) {
@@ -1224,6 +1227,10 @@
         var label = k.indexOf('QX:') === 0 ? k.slice(3) : codeText('問題分類', k);
         return '<option value="' + esc(k) + '">' + esc(label) + '</option>';
       }).join('');
+      // v3.3.3 P4：題目次分類屬 ERAS 照護階段者，顯示「照護階段」篩選（其他面向不顯示）
+      var st = STAGES.filter(function (s) { return qs.some(function (q) { return q.sub === s; }); });
+      f.stage.innerHTML = '<option value="">全部</option>' + st.map(function (s) { return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('');
+      $('#stageBox', f).classList.toggle('hidden', !st.length);
       renderQuestions(f);
     }).catch(function (e) { $('#qlist', f).innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; });
   }
@@ -1237,6 +1244,7 @@
   var NEED = [['USE', '用法與漏服'], ['SAFE', '副作用與安全'], ['STOP', '停藥與調整'], ['RED', '何時就醫'], ['LIFE', '生活與飲食'], ['CARE', '照顧與資源']];
   var PUB_TXT = { PENDING: ['待簽核', '已查證改寫、待主責藥師簽核：可參考，不自動帶入'], DRAFT: ['草稿', '未完成查證：可參考，不自動帶入'], STAFF: ['人員參考', '給醫療人員的專業內容，不給病人、不自動帶入'] };
   var PUB_RANK = { OK: 0, PENDING: 1, DRAFT: 2, STAFF: 3 };
+  var STAGES = ['術前準備', '住院到手術當天', '術後住院期', '出院準備', '出院後 30 天'];
   function qKey(q) { return q.cat === 'QX' ? 'QX:' + (q.sub || q.legacyCat || '其他') : q.cat; }
   function needOf(q) {
     var o = {}, h = q.htags || [], qq = q.q || '';
@@ -1280,6 +1288,7 @@
   function renderQuestions(f) {
     var code = f.pack.value;
     var qs = S.qcache[code] || [];
+    var stage = f.stage ? f.stage.value : '';
     var cat = f.cat.value, kw = f.qsearch.value.trim().toLowerCase(), need = f._need || '';
     var picked = vals(f, 'qpick');
     var terms = kw ? synExpand(kw) : [];
@@ -1288,12 +1297,13 @@
     var list = qs.filter(function (q) {
       if (picked.indexOf(q.id) >= 0) return true;
       if (cat && qKey(q) !== cat) return false;
+      if (stage && q.sub !== stage) return false;
       if (need && !needOf(q)[need]) return false;
       if (terms.length) { var t = (q.q + ' ' + (q.kw || '') + ' ' + q.a).toLowerCase(); if (!terms.some(function (w) { return t.indexOf(w) >= 0; })) return false; }
       return true;
     }).map(function (q, i) { return [q, i]; }).sort(function (a, b) { return (PUB_RANK[a[0].pub] || 0) - (PUB_RANK[b[0].pub] || 0) || a[1] - b[1]; }).map(function (x) { return x[0]; });
     // v2.5 U9：未篩選時先列 5 題（已勾選者永遠列出），其餘按「顯示全部」
-    var total = list.length, limited = !cat && !kw && !need && !f._qAll && list.length > 5;
+    var total = list.length, limited = !cat && !stage && !kw && !need && !f._qAll && list.length > 5;
     if (limited) { var shown = 0; list = list.filter(function (q) { if (picked.indexOf(q.id) >= 0) return true; shown++; return shown <= 5; }); }
     var html = list.length ? list.map(function (q) { return qItemHtml(q, picked); }).join('') + (limited ? '<div class="qmore"><button type="button" class="btn small ghost" data-qall>顯示全部 ' + total + ' 題</button></div>' : '') :
       '<div class="empty">' + (qs.length ? '本面向沒有符合的題目' : '此面向為自由記錄，請直接填寫回應') + '</div>';
