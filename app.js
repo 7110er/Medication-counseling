@@ -1273,6 +1273,7 @@
       (q.att ? ' <button type="button" class="btn ghost small" data-att="' + esc(q.id) + '">附件</button>' : '') +
       '</div><details><summary>預覽回應</summary>' + (pt ? '<div class="msg warn small">' + esc(pt[1]) + (q.why ? '（' + esc(q.why) + '）' : '') + '</div>' : '') + chk +
       '<div>' + esc(q.a) + '</div><div class="note">題目編號 ' + esc(q.id) + '</div>' +
+      ((q.rel || []).length ? '<div class="note">相關題目：' + q.rel.map(function (r) { return esc(r.id) + ' ' + esc(r.q); }).join('；') + '</div>' : '') +
       (q.staff ? '<div class="qstaff"><b>人員提示（不給病人）</b>\n' + esc(q.staff) + '</div>' : '') +
       (q.cond ? '<details class="qcond"><summary>使用條件（審查紀錄）</summary><div>' + esc(q.cond) + '</div></details>' : '') + '</details></div></div>';
   }
